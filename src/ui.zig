@@ -156,7 +156,21 @@ pub fn renderPreview(
 pub fn renderHelp(win: vaxis.Window) !void {
     const height = win.height;
     const width = win.width;
-    if (height < 10 or width < 40) return;
+    if (height < 3 or width < 20) {
+        // Window too small for any help display
+        _ = win.printSegment(.{ .text = "?:help" }, .{});
+        return;
+    }
+    if (height < 10 or width < 40) {
+        // Compact help for small windows
+        _ = win.printSegment(.{
+            .text = "kaiu Help (press any key)",
+            .style = .{ .bold = true, .reverse = true },
+        }, .{ .row_offset = 0, .col_offset = 0 });
+        _ = win.printSegment(.{ .text = "j/k:move h/l:nav o:preview" }, .{ .row_offset = 1, .col_offset = 0 });
+        _ = win.printSegment(.{ .text = "/:search .:hidden q:quit" }, .{ .row_offset = 2, .col_offset = 0 });
+        return;
+    }
 
     // Center the help box
     const box_width: u16 = @min(60, width - 4);
