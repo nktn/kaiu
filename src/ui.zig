@@ -167,8 +167,8 @@ pub fn renderHelp(win: vaxis.Window) !void {
             .text = "kaiu Help (press any key)",
             .style = .{ .bold = true, .reverse = true },
         }, .{ .row_offset = 0, .col_offset = 0 });
-        _ = win.printSegment(.{ .text = "j/k:move h/l:nav o:preview" }, .{ .row_offset = 1, .col_offset = 0 });
-        _ = win.printSegment(.{ .text = "/:search .:hidden q:quit" }, .{ .row_offset = 2, .col_offset = 0 });
+        _ = win.printSegment(.{ .text = "j/k:move h/l:collapse/expand o:preview" }, .{ .row_offset = 1, .col_offset = 0 });
+        _ = win.printSegment(.{ .text = "/:search .:hidden ?:help q:quit" }, .{ .row_offset = 2, .col_offset = 0 });
         return;
     }
 

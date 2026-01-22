@@ -947,10 +947,10 @@ pub const App = struct {
 
     fn renderStatusRow2(self: *Self, win: vaxis.Window, row: u16) !void {
         const hints = switch (self.mode) {
-            .tree_view => "j/k:move  l/Enter:open  h:back  .:hidden  /:search  ?:help  q:quit",
-            .search => "Enter:confirm  Esc:cancel  n/N:next/prev match",
+            .tree_view => "j/k:move  h/l:collapse/expand  o:preview  .:hidden  /:search  ?:help  q:quit",
+            .search => "Enter:confirm  Esc:cancel  n/N:next/prev",
             .path_input => "Enter:go  Esc:cancel",
-            .preview => "j/k:scroll  h:close  q:quit",
+            .preview => "j/k:scroll  o:close  q:quit",
             else => "",
         };
 
