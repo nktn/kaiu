@@ -235,7 +235,7 @@ pub const App = struct {
             'g' => self.pending_key.set('g'), // Start multi-key sequence
             'G' => self.jumpToBottom(),
             'H' => self.collapseAll(),
-            'L' => try self.expandAll(),
+            'L' => self.expandAll(),
             vaxis.Key.tab => try self.toggleCurrentDirectory(),
             '/' => self.enterSearchMode(),
             'n' => self.nextSearchMatch(),
@@ -560,14 +560,16 @@ pub const App = struct {
         }
     }
 
-    fn expandAll(self: *Self) !void {
+    fn expandAll(self: *Self) void {
         if (self.file_tree) |ft| {
             // Expand directories iteratively (new entries may be added)
             var i: usize = 0;
             while (i < ft.entries.items.len) {
                 const entry = &ft.entries.items[i];
                 if (entry.kind == .directory and !entry.expanded) {
-                    try ft.toggleExpand(i);
+                    ft.toggleExpand(i) catch {
+                        // Skip directories we can't access (permission denied, etc.)
+                    };
                 }
                 i += 1;
             }
