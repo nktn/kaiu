@@ -131,7 +131,7 @@ pub const App = struct {
                     'k' => self.moveCursor(-1),
                     'l', vaxis.Key.enter => try self.handleEnter(),
                     'h' => self.handleBack(),
-                    'a' => self.show_hidden = !self.show_hidden,
+                    'a' => self.toggleHidden(),
                     else => {},
                 }
             },
@@ -165,15 +165,29 @@ pub const App = struct {
         }
     }
 
+    fn toggleHidden(self: *Self) void {
+        self.show_hidden = !self.show_hidden;
+
+        // Clamp cursor to new visible count
+        if (self.file_tree) |ft| {
+            const visible_count = ft.countVisible(self.show_hidden);
+            if (visible_count == 0) {
+                self.cursor = 0;
+            } else if (self.cursor >= visible_count) {
+                self.cursor = visible_count - 1;
+            }
+        }
+    }
+
     fn handleEnter(self: *Self) !void {
         if (self.file_tree == null) return;
         const ft = self.file_tree.?;
 
-        if (self.cursor >= ft.entries.items.len) return;
+        const actual_index = ft.visibleToActualIndex(self.cursor, self.show_hidden) orelse return;
 
-        const entry = &ft.entries.items[self.cursor];
+        const entry = &ft.entries.items[actual_index];
         if (entry.kind == .directory) {
-            try ft.toggleExpand(self.cursor);
+            try ft.toggleExpand(actual_index);
         } else {
             try self.openPreview(entry.path);
         }
@@ -183,11 +197,11 @@ pub const App = struct {
         if (self.file_tree == null) return;
         const ft = self.file_tree.?;
 
-        if (self.cursor >= ft.entries.items.len) return;
+        const actual_index = ft.visibleToActualIndex(self.cursor, self.show_hidden) orelse return;
 
-        const entry = &ft.entries.items[self.cursor];
+        const entry = &ft.entries.items[actual_index];
         if (entry.kind == .directory and entry.expanded) {
-            ft.collapseAt(self.cursor);
+            ft.collapseAt(actual_index);
         }
     }
 
@@ -207,6 +221,9 @@ pub const App = struct {
             switch (err) {
                 error.AccessDenied => {
                     self.preview_content = try self.allocator.dupe(u8, "[Access Denied]");
+                    self.preview_path = try self.allocator.dupe(u8, path);
+                    self.preview_scroll = 0;
+                    self.mode = .preview;
                     return;
                 },
                 else => return err,

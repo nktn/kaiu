@@ -81,6 +81,13 @@ pub const FileTree = struct {
         var iter = dir.iterate();
         var temp_entries: std.ArrayList(FileEntry) = .empty;
         defer temp_entries.deinit(self.allocator);
+        errdefer {
+            // Clean up allocated strings in temp_entries on error
+            for (temp_entries.items) |*e| {
+                self.allocator.free(e.name);
+                self.allocator.free(e.path);
+            }
+        }
 
         while (try iter.next()) |entry| {
             const name = try self.allocator.dupe(u8, entry.name);
@@ -197,6 +204,26 @@ pub const FileTree = struct {
         }
         return count;
     }
+
+    /// Convert visible index to actual entries index.
+    /// Returns null if visible_index is out of range.
+    pub fn visibleToActualIndex(self: *FileTree, visible_index: usize, show_hidden: bool) ?usize {
+        if (show_hidden) {
+            if (visible_index >= self.entries.items.len) return null;
+            return visible_index;
+        }
+
+        var visible_count: usize = 0;
+        for (self.entries.items, 0..) |entry, actual_index| {
+            if (!entry.is_hidden) {
+                if (visible_count == visible_index) {
+                    return actual_index;
+                }
+                visible_count += 1;
+            }
+        }
+        return null;
+    }
 };
 
 test "FileTree init and deinit" {
@@ -286,4 +313,41 @@ test "FileTree hidden file detection" {
     }
 
     try std.testing.expectEqual(@as(usize, 1), hidden_count);
+}
+
+test "FileTree visibleToActualIndex" {
+    const allocator = std.testing.allocator;
+
+    var tmp_dir = std.testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    // Create files: .hidden (index 0), visible1.txt (index 1), visible2.txt (index 2)
+    var hidden = try tmp_dir.dir.createFile(".hidden", .{});
+    hidden.close();
+    var visible1 = try tmp_dir.dir.createFile("visible1.txt", .{});
+    visible1.close();
+    var visible2 = try tmp_dir.dir.createFile("visible2.txt", .{});
+    visible2.close();
+
+    const path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(path);
+
+    const ft = try FileTree.init(allocator, path);
+    defer ft.deinit();
+
+    try ft.readDirectory();
+
+    // With show_hidden=true, visible index == actual index
+    try std.testing.expectEqual(@as(?usize, 0), ft.visibleToActualIndex(0, true));
+    try std.testing.expectEqual(@as(?usize, 1), ft.visibleToActualIndex(1, true));
+    try std.testing.expectEqual(@as(?usize, 2), ft.visibleToActualIndex(2, true));
+    try std.testing.expectEqual(@as(?usize, null), ft.visibleToActualIndex(3, true));
+
+    // With show_hidden=false, visible index skips hidden files
+    // Sorted order: .hidden (hidden), visible1.txt, visible2.txt
+    // visible index 0 -> actual index 1 (visible1.txt)
+    // visible index 1 -> actual index 2 (visible2.txt)
+    try std.testing.expectEqual(@as(?usize, 1), ft.visibleToActualIndex(0, false));
+    try std.testing.expectEqual(@as(?usize, 2), ft.visibleToActualIndex(1, false));
+    try std.testing.expectEqual(@as(?usize, null), ft.visibleToActualIndex(2, false));
 }
