@@ -239,7 +239,7 @@ pub const App = struct {
             .wheel_down => {
                 switch (self.mode) {
                     .tree_view, .search, .path_input => self.moveCursor(1),
-                    .preview => self.preview_scroll +|= 1,
+                    .preview => self.scrollPreviewDown(self.vx.window().height),
                     else => {},
                 }
             },
@@ -299,7 +299,7 @@ pub const App = struct {
         switch (key_char) {
             'q' => self.should_quit = true,
             'o', 'h' => self.closePreview(),
-            'j' => self.preview_scroll +|= 1,
+            'j' => self.scrollPreviewDown(self.vx.window().height),
             'k' => if (self.preview_scroll > 0) {
                 self.preview_scroll -= 1;
             },
@@ -570,6 +570,18 @@ pub const App = struct {
         self.mode = .tree_view;
     }
 
+    /// Scroll preview down by one line, clamping to content bounds
+    fn scrollPreviewDown(self: *Self, win_height: u16) void {
+        if (self.preview_content) |content| {
+            const total_lines = std.mem.count(u8, content, "\n") + 1;
+            const visible_rows: usize = if (win_height > 1) win_height - 1 else 1; // Subtract header row
+            const max_scroll = if (total_lines > visible_rows) total_lines - visible_rows else 0;
+            if (self.preview_scroll < max_scroll) {
+                self.preview_scroll += 1;
+            }
+        }
+    }
+
     // ===== Jump Commands (Task 2.2) =====
 
     fn jumpToTop(self: *Self) void {
@@ -838,20 +850,24 @@ pub const App = struct {
 
         const height = win.height;
 
+        const arena = self.render_arena.allocator();
+
         switch (self.mode) {
             .tree_view, .search, .path_input => {
-                // Main tree view (leave room for status bar)
+                // Main tree view (leave room for status bar if height > 2)
                 const tree_height: u16 = if (height > 2) height - 2 else height;
                 var tree_win = win.child(.{ .height = tree_height });
                 tree_win.clear();
                 if (self.file_tree) |ft| {
-                    try ui.renderTree(tree_win, ft, self.cursor, self.scroll_offset, self.show_hidden);
+                    try ui.renderTree(tree_win, ft, self.cursor, self.scroll_offset, self.show_hidden, arena);
                 } else {
                     _ = tree_win.printSegment(.{ .text = "No directory loaded" }, .{});
                 }
 
-                // Status bar at bottom
-                try self.renderStatusBar(win, tree_height);
+                // Status bar at bottom (only if we have room)
+                if (height > 2) {
+                    try self.renderStatusBar(win, tree_height, arena);
+                }
             },
             .preview => {
                 if (self.preview_content) |content| {
@@ -867,9 +883,7 @@ pub const App = struct {
         try self.vx.render(writer);
     }
 
-    fn renderStatusBar(self: *Self, win: vaxis.Window, row: u16) !void {
-        const arena = self.render_arena.allocator();
-
+    fn renderStatusBar(self: *Self, win: vaxis.Window, row: u16, arena: std.mem.Allocator) !void {
         // Row 1: Path and status
         try self.renderStatusRow1(win, arena, row);
 
@@ -884,8 +898,8 @@ pub const App = struct {
             .search => {
                 // Search mode: "/query" [N matches]
                 const match_count = self.search_matches.items.len;
-                const query = self.input_buffer.items;
-                const status = try std.fmt.allocPrint(arena, "/{s}|  [{d} matches]", .{ query, match_count });
+                const safe_query = try ui.sanitizeForDisplay(arena, self.input_buffer.items);
+                const status = try std.fmt.allocPrint(arena, "/{s}|  [{d} matches]", .{ safe_query, match_count });
                 _ = win.printSegment(.{
                     .text = status,
                     .style = .{ .reverse = true },
@@ -893,33 +907,34 @@ pub const App = struct {
             },
             .path_input => {
                 // Path input mode: "Go to: path"
-                const path = self.input_buffer.items;
-                const status = try std.fmt.allocPrint(arena, "Go to: {s}|", .{path});
+                const safe_path = try ui.sanitizeForDisplay(arena, self.input_buffer.items);
+                const status = try std.fmt.allocPrint(arena, "Go to: {s}|", .{safe_path});
                 _ = win.printSegment(.{
                     .text = status,
                     .style = .{ .reverse = true },
                 }, .{ .row_offset = row, .col_offset = 0 });
             },
             .tree_view => {
-                // Show current directory path
+                // Show current directory path (sanitized)
                 if (self.file_tree) |ft| {
+                    const safe_root = try ui.sanitizeForDisplay(arena, ft.root_path);
                     const max_path_width: usize = @as(usize, win.width) -| 20; // Leave room for status
                     if (max_path_width <= 3) {
                         // Window too narrow, skip path display
-                    } else if (ft.root_path.len > max_path_width) {
+                    } else if (safe_root.len > max_path_width) {
                         // Show "..." prefix for long paths
                         _ = win.printSegment(.{
                             .text = "...",
                             .style = .{ .fg = .{ .index = 8 } }, // dim
                         }, .{ .row_offset = row, .col_offset = 0 });
-                        const suffix_start = ft.root_path.len - (max_path_width - 3);
+                        const suffix_start = safe_root.len - (max_path_width - 3);
                         _ = win.printSegment(.{
-                            .text = ft.root_path[suffix_start..],
+                            .text = safe_root[suffix_start..],
                             .style = .{ .fg = .{ .index = 6 }, .bold = true }, // cyan, bold
                         }, .{ .row_offset = row, .col_offset = 3 });
                     } else {
                         _ = win.printSegment(.{
-                            .text = ft.root_path,
+                            .text = safe_root,
                             .style = .{ .fg = .{ .index = 6 }, .bold = true }, // cyan, bold
                         }, .{ .row_offset = row, .col_offset = 0 });
                     }
@@ -934,9 +949,10 @@ pub const App = struct {
                         .style = .{ .fg = .{ .index = 3 } }, // yellow
                     }, .{ .row_offset = row, .col_offset = col });
                 } else if (self.status_message) |msg| {
-                    const col: u16 = @intCast(win.width -| msg.len -| 1);
+                    const safe_msg = try ui.sanitizeForDisplay(arena, msg);
+                    const col: u16 = @intCast(win.width -| safe_msg.len -| 1);
                     _ = win.printSegment(.{
-                        .text = msg,
+                        .text = safe_msg,
                         .style = .{ .fg = .{ .index = 2 } }, // green
                     }, .{ .row_offset = row, .col_offset = col });
                 }
