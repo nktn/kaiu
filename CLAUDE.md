@@ -38,7 +38,7 @@ See @.claude/rules/architecture.md for state machine and design decisions.
 | Architecture & State | @.claude/rules/architecture.md |
 | Security | @.claude/rules/security.md |
 | Performance | @.claude/rules/performance.md |
-| Agent Usage | @.claude/rules/agents.md |
+| Agents & Decision Log | @.claude/rules/agents.md |
 | Build Patterns | @.claude/skills/zig-build-engineer/SKILL.md |
 
 ## Constraints
