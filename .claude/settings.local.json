@@ -3,8 +3,28 @@
     "allow": [
       "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(zig build)",
+      "Bash(zig build run)",
+      "Bash(zig build test)",
+      "Bash(zig build -Doptimize=*)",
+      "Bash(git status)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git commit*)",
+      "Bash(git branch*)",
+      "Bash(git checkout -b *)",
+      "Bash(git push)",
+      "Bash(git push -u *)",
       "Bash(gh api:*)",
-      "Skill(tdd)"
+      "Bash(gh pr *)",
+      "Skill(tdd)",
+      "Skill(build-fix)",
+      "Skill(codex)",
+      "Skill(pr)",
+      "Skill(implement)",
+      "Skill(learn)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nchore: clean up auto-added permission entries\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
     ]
   }
 }

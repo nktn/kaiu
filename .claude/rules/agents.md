@@ -213,3 +213,26 @@ zig-build-resolver
 4. **最小修正**: build-resolver は関係ないコードを触らない
 5. **記録を残す**: 設計判断は architecture.md に蓄積
 6. **並行実行を活用**: 独立タスクは並行で効率化
+
+## Decision Log
+
+レビュー指摘を採用/スキップする際は、PR コメントに Decision Log を残す。
+
+### Format
+
+```markdown
+## Decision Log
+
+### [指摘内容] (Severity - 採用/スキップ)
+
+**Issue**: 何が指摘されたか
+**Decision**: どうするか
+**Rationale**: なぜその判断か
+**Alternatives considered**: 他に検討した選択肢
+```
+
+### Purpose
+
+- 意思決定の経緯を記録
+- 後から「なぜこうなった？」を追跡可能に
+- レビュアーとの認識合わせ
