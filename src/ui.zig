@@ -133,21 +133,19 @@ pub fn renderPreview(
 
         if (row >= height) break;
 
-        // Print line content FIRST
+        // Print line number using string literal
+        _ = win.printSegment(.{
+            .text = "   1 ",
+            .style = .{ .fg = .{ .index = 8 } },
+        }, .{ .row_offset = row, .col_offset = 0 });
+
+        // Print line content
         const max_len = @min(line.len, win.width -| 5);
         if (max_len > 0) {
             _ = win.printSegment(.{
                 .text = line[0..max_len],
             }, .{ .row_offset = row, .col_offset = 5 });
         }
-
-        // Format and print line number SECOND
-        var num_buf: [8]u8 = [_]u8{' '} ** 8;
-        const num_str = std.fmt.bufPrint(&num_buf, "{d:>4} ", .{line_num + 1}) catch "???? ";
-        _ = win.printSegment(.{
-            .text = num_str,
-            .style = .{ .fg = .{ .index = 8 } },
-        }, .{ .row_offset = row, .col_offset = 0 });
 
         line_num += 1;
         row += 1;
