@@ -32,7 +32,6 @@ pub const FileEntry = struct {
 
 pub const FileTree = struct {
     allocator: std.mem.Allocator,
-    arena: std.heap.ArenaAllocator,
     root_path: []const u8,
     entries: std.ArrayList(FileEntry),
 
@@ -42,7 +41,6 @@ pub const FileTree = struct {
 
         self.* = .{
             .allocator = allocator,
-            .arena = std.heap.ArenaAllocator.init(allocator),
             .root_path = try allocator.dupe(u8, path),
             .entries = .empty,
         };
@@ -56,7 +54,6 @@ pub const FileTree = struct {
         }
         self.entries.deinit(self.allocator);
         self.allocator.free(self.root_path);
-        self.arena.deinit();
         self.allocator.destroy(self);
     }
 
@@ -167,14 +164,12 @@ pub const FileTree = struct {
         const parent_depth = entry.depth;
         var remove_count: usize = 0;
 
-        // Count how many entries to remove (all descendants)
+        // Count and deinit all descendants
         var i = index + 1;
         while (i < self.entries.items.len) {
             if (self.entries.items[i].depth <= parent_depth) break;
-            // Free the entry's allocated strings
-            const child = &self.entries.items[i];
-            self.allocator.free(child.name);
-            self.allocator.free(child.path);
+            // Use deinit to properly free all resources including potential children
+            self.entries.items[i].deinit(self.allocator);
             remove_count += 1;
             i += 1;
         }

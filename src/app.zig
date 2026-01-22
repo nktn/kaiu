@@ -88,10 +88,13 @@ pub const App = struct {
 
         // Enter alt screen
         try self.vx.enterAltScreen(writer);
+        errdefer self.vx.exitAltScreen(writer) catch {};
+
         self.vx.queueRefresh();
 
         // Start the input thread
         try self.loop.start();
+        errdefer self.loop.stop();
 
         // Initial render
         try self.render(writer);
@@ -240,12 +243,14 @@ pub const App = struct {
             const stat = file.stat() catch {
                 self.preview_content = try self.allocator.dupe(u8, "[Unable to read file]");
                 self.preview_path = try self.allocator.dupe(u8, path);
+                self.preview_scroll = 0;
                 self.mode = .preview;
                 return;
             };
             if (stat.size > max_size) {
                 self.preview_content = try self.allocator.dupe(u8, "[File too large]");
                 self.preview_path = try self.allocator.dupe(u8, path);
+                self.preview_scroll = 0;
                 self.mode = .preview;
                 return;
             }
@@ -258,6 +263,7 @@ pub const App = struct {
             const stat = file.stat() catch {
                 self.preview_content = try self.allocator.dupe(u8, "[Binary file]");
                 self.preview_path = try self.allocator.dupe(u8, path);
+                self.preview_scroll = 0;
                 self.mode = .preview;
                 return;
             };
@@ -265,6 +271,7 @@ pub const App = struct {
             const size_str = std.fmt.bufPrint(&buf, "[Binary file - {d} bytes]", .{stat.size}) catch "[Binary file]";
             self.preview_content = try self.allocator.dupe(u8, size_str);
             self.preview_path = try self.allocator.dupe(u8, path);
+            self.preview_scroll = 0;
             self.mode = .preview;
             return;
         }

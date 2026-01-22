@@ -3,7 +3,12 @@ const app = @import("app.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
+    defer {
+        const check = gpa.deinit();
+        if (check == .leak) {
+            std.debug.print("Memory leak detected!\n", .{});
+        }
+    }
     const allocator = gpa.allocator();
 
     // Parse command line arguments
