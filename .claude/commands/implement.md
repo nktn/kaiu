@@ -1,10 +1,8 @@
 ---
-description: Execute implementation with Zig-specific TDD, build fixing, and code review integrated. Wraps speckit.implement with Zig agents.
+description: Execute implementation with Zig-specific TDD, build fixing, and code review integrated. Orchestrator が計画を立て、承認後に各 Agent を呼び出す。
 ---
 
 # Zig Implementation
-
-Orchestrator が tasks.md を読み、依存関係を分析し、タスクを並行/順次実行する。
 
 ## User Input
 
@@ -12,286 +10,213 @@ Orchestrator が tasks.md を読み、依存関係を分析し、タスクを並
 $ARGUMENTS
 ```
 
-## Process Overview
+## Agent Architecture
 
 ```
-git checkout -b feat/<name>
-   │
-   ▼
-tasks.md
-   │
-   ▼
-┌─────────────────────────────────────────┐
-│  Orchestrator                           │
-│  ┌───────────────────────────────────┐  │
-│  │  1. 依存関係分析                    │  │
-│  │  2. 実行計画作成                    │  │
-│  │  3. ready タスクを並行実行          │  │
-│  └───────────────────────────────────┘  │
-│                                         │
-│  ┌─────────────────────────────────┐    │
-│  │  各タスク:                       │    │
-│  │  → zig-architect (設計判断)      │    │
-│  │  → zig-tdd (RED→GREEN→REFACTOR) │    │
-│  │  → zig-build-resolver (エラー時) │    │
-│  │  → tasks.md に [x] マーク        │    │
-│  └─────────────────────────────────┘    │
-│                                         │
-│  完了 → 依存解決 → 次のタスク           │
-└─────────────────────────────────────────┘
-   │
-   ▼
-zig-refactor-cleaner (クリーンアップ)
-   │
-   ▼
-/learn (パターン保存)
-   │
-   ▼
-git commit && push → /pr → /codex → 修正 → /pr merge
+/implement
+    │
+    ▼
+┌─────────────────────────────────────────────────────────────┐
+│  orchestrator (タスク管理 Agent)                             │
+│                                                             │
+│  Phase 1: Planning                                          │
+│  ├── specs/*.md 確認                                        │
+│  ├── 計画出力（各タスクの Agent 呼び出しを明示）               │
+│  └── ユーザー承認待ち ← **承認までコードを書かない**           │
+│                                                             │
+│  Phase 2: Execution (承認後)                                │
+│  │  各タスクに対して以下の Agent を順番に実行:                │
+│  │  ┌─────────────┐   ┌─────────────┐   ┌─────────────────┐│
+│  │  │zig-architect│ → │  zig-tdd    │ → │zig-build-resolver││
+│  │  │ 設計判断     │   │ RED→GREEN  │   │ ビルド確認       ││
+│  │  └─────────────┘   └─────────────┘   └─────────────────┘│
+│  │                                                          │
+│  Phase 3: Completion                                        │
+│  │  ┌─────────────────────┐                                 │
+│  │  │zig-refactor-cleaner │                                 │
+│  │  │ リファクタリング      │                                 │
+│  │  └─────────────────────┘                                 │
+└─────────────────────────────────────────────────────────────┘
 ```
+
+---
 
 ## Execution Steps
 
-### 1. Setup
-
-#### 1.1 Create Feature Branch
-
-Before starting implementation, create a feature branch:
+### Step 1: Setup
 
 ```bash
-# Branch naming: feat/<feature-name> or feat/<phase-name>
-git checkout -b feat/phase1-foundation
+git checkout -b feat/<feature-name>
 ```
 
-This ensures:
-- Clean separation from main branch
-- Easy PR creation after completion
-- Safe rollback if needed
-- Parallel work on different features
+---
 
-#### 1.2 Prerequisite Check
+### Step 2: Orchestrator 起動 (MANDATORY)
 
-Run prerequisite check:
+**orchestrator Agent を呼び出す:**
+
+```
+Task(subagent_type: "orchestrator", prompt: "
+.specify/tasks/ 配下のタスクを実行してください。
+
+Phase 1: Planning
+1. .specify/specs/*.md を確認
+2. 実行計画を出力（各タスクで呼び出す Agent を明示）
+3. ユーザー承認を待つ（承認までコードを書かない）
+
+Phase 2: Execution (承認後)
+各タスクで以下の Agent を必ず呼び出す:
+- zig-architect
+- zig-tdd
+- zig-build-resolver
+
+Phase 3: Completion
+- zig-refactor-cleaner
+")
+```
+
+---
+
+## 計画出力フォーマット (orchestrator が出力)
+
+```
+=== 実行計画 ===
+
+■ 関連 Spec
+- specs/*.md (該当する spec を列挙)
+
+■ タスク一覧と Agent 呼び出し
+
+Task 1.1: Project Setup
+  ├── 変更ファイル: build.zig, build.zig.zon
+  ├── 変更内容: プロジェクト初期化
+  ├── 影響範囲: なし
+  └── Agent: zig-architect → zig-tdd → zig-build-resolver
+
+Task 1.2: Directory Reading
+  ├── 変更ファイル: src/tree.zig
+  ├── 変更内容: FileTree 実装
+  ├── 影響範囲: なし
+  └── Agent: zig-architect → zig-tdd → zig-build-resolver
+
+... (全タスク)
+
+■ 全タスク完了後
+  └── zig-refactor-cleaner
+
+=== この計画で進めていいですか？ ===
+```
+
+**承認があるまでコードを書かない。**
+
+---
+
+## Agent Calls (orchestrator が実行)
+
+### 各タスクで呼び出す Agent (MANDATORY)
+
+#### 1. zig-architect
+
+```
+Task(subagent_type: "zig-architect", prompt: "
+タスク: [タスク名]
+内容: [タスクの説明]
+
+設計判断を行い、architecture.md に記録してください。
+")
+```
+
+#### 2. zig-tdd
+
+```
+Task(subagent_type: "zig-tdd", prompt: "
+タスク: [タスク名]
+設計: [zig-architect の出力を参照]
+
+TDD サイクルを実行:
+1. RED: 失敗するテストを書く
+2. GREEN: 最小限のコードで通す
+3. テスト成功を確認
+")
+```
+
+#### 3. zig-build-resolver
+
+```
+Task(subagent_type: "zig-build-resolver", prompt: "
+zig build と zig build test を実行。
+エラーがあれば修正、なければ「ビルド成功」と報告。
+")
+```
+
+#### 4. タスク完了マーク
+
+```
+tasks.md を更新:
+- [ ] Task description  →  - [x] Task description
+```
+
+---
+
+### 全タスク完了後 (MANDATORY)
+
+#### zig-refactor-cleaner
+
+```
+Task(subagent_type: "zig-refactor-cleaner", prompt: "
+全タスクが完了しました。
+1. Compiler warnings 確認・修正
+2. 未使用コード削除
+3. 重複コード統合
+4. Zig イディオム適用
+5. 全テスト成功を確認
+")
+```
+
+---
+
+## Completion Checklist
+
+- [ ] 全タスクに `[x]` がついている
+- [ ] architecture.md に設計判断が記録されている
+- [ ] `zig build` 成功
+- [ ] `zig build test` 成功
+
+---
+
+## Post-Implementation
+
 ```bash
-.specify/scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks
-```
-
-Parse FEATURE_DIR and load:
-- `tasks.md` - Task list
-- `plan.md` - Architecture reference
-- `spec.md` - Requirements reference
-
-### 2. Phase Execution
-
-For each phase in tasks.md:
-
-#### 2.1 Design Decision (if needed)
-
-Before coding, check if task requires structural decisions:
-
-**Trigger zig-architect when:**
-- New module/file needed
-- Unclear data structure ownership
-- Memory strategy choice (Arena vs GPA)
-- Error set design needed
-- Multiple valid approaches exist
-
-**zig-architect outputs to `.claude/rules/architecture.md`:**
-```markdown
-### [2026-01-22] FileTree Memory Strategy
-**Context**: FileTree nodes need allocation strategy
-**Decision**: Use ArenaAllocator
-**Rationale**: All nodes freed together, no individual deletes
-**Alternatives**: GPA (more flexible but complex cleanup)
-```
-
-All design decisions are recorded in architecture.md for future reference.
-
-#### 2.2 Task Execution (TDD)
-
-For each task `- [ ] T00X ...`:
-
-**RED** - Write failing test first:
-```zig
-test "task requirement" {
-    // Test the expected behavior
-    try testing.expectEqual(expected, actual);
-}
-```
-
-Run: `zig build test` → Verify test fails
-
-**GREEN** - Implement minimal code to pass:
-- Follow task description
-- Reference plan.md for structure
-- Use Zig idioms (explicit allocators, error handling)
-
-Run: `zig build test` → Verify test passes
-
-**REFACTOR** - Improve while tests pass:
-- Clean up code
-- Ensure memory safety (defer/errdefer)
-
-#### 2.3 Build Fix
-
-If `zig build` fails:
-- Invoke `zig-build-resolver` agent
-- Apply minimal fixes
-- Do not refactor unrelated code
-- Re-run build until passing
-
-#### 2.4 Mark Complete
-
-Update tasks.md: `- [ ]` → `- [X]`
-
-### 3. Refactor & Cleanup
-
-After all tasks complete, invoke `zig-refactor-cleaner`:
-
-#### 3.1 Analysis
-
-```bash
-# Compiler warnings
-zig build 2>&1 | grep -E "warning:"
-
-# Unused pub functions
-grep -rn "pub fn " src/ | while read line; do
-  # Check usage count
-done
-```
-
-#### 3.2 Cleanup Actions
-
-- **SAFE**: 未使用ローカル変数、unreachable code → 即削除
-- **CAREFUL**: 未使用 pub fn → 確認後削除
-- **RISKY**: API 公開関数 → 削除しない
-
-#### 3.3 Apply Zig Idioms
-
-- 手動クリーンアップ → defer/errdefer
-- 冗長な Optional/Error 処理 → orelse/try
-- 重複コード → 共通ヘルパー抽出
-
-#### 3.4 Verification
-
-```bash
-zig build && zig build test
-```
-
-### 4. Learn (Post-Cleanup)
-
-After cleanup complete:
-
-Review session for extractable patterns:
-- Non-obvious error fixes
-- libvaxis patterns discovered
-- Memory management strategies
-- Build.zig patterns
-
-Save valuable patterns to `.claude/skills/learned/`
-
-## Agents/Skills Used
-
-| Agent/Skill | When |
-|-------------|------|
-| `orchestrator` | 全体制御、依存分析、並行実行 |
-| `zig-architect` | If structural decisions needed |
-| `zig-tdd` | Each task (Red-Green-Refactor) |
-| `zig-build-resolver` | On compilation errors |
-| `zig-refactor-cleaner` | After all tasks complete (cleanup) |
-| `codex` (skill) | After PR creation (code review) |
-
-## Error Handling
-
-- **Test fails after implementation**: Re-examine task, fix implementation
-- **Build fails**: Invoke build-resolver, apply minimal fix
-- **Review finds CRITICAL**: Fix before proceeding
-- **Task blocked**: Note blocker, continue with parallel tasks [P]
-
-## Progress Tracking
-
-Report after each:
-- Task: `[X] T00X completed`
-- Phase: `Phase N complete (X/Y tasks)`
-- Feature: `Implementation complete. Patterns saved.`
-
-## Example Output
-
-```
-Starting implementation: Phase 1 Tree View
-
-Phase 1: Setup
-  [X] T001 Initialize Zig project
-  [X] T002 Add libvaxis dependency
-
-Phase 2: Core
-  T003 Implement FileTree struct
-    RED: Writing test for FileTree.init...
-    GREEN: Implementing FileTree.init...
-    REFACTOR: Adding errdefer for cleanup...
-  [X] T003 completed
-
-  T004 Implement directory reading
-    RED: Writing test...
-    BUILD ERROR: expected type 'usize', found 'u32'
-    FIX: Adding @intCast
-    GREEN: Test passing
-  [X] T004 completed
-
-Phase 2 Review:
-  [✓] Memory safety: All allocations have defer
-  [✓] Error handling: All errors propagated
-  [!] MEDIUM: Consider using arena allocator
-
-Phase 2 complete (2/2 tasks)
-
-...
-
-Implementation complete.
-Patterns learned:
-  - Saved: libvaxis-event-loop-pattern.md
-```
-
-## Post-Implementation: PR & Review
-
-実装完了後のフロー:
-
-### 1. Commit & Push
-```bash
-# Stage and commit changes
 git add <files>
 git commit -m "feat: <description>"
-
-# Push branch to remote
 git push -u origin feat/<feature-name>
 ```
 
-### 2. PR 作成
 ```
-/pr
-```
-- PR 作成（ラベル自動付与）
-
-### 3. Codex レビュー
-```
-/codex このPRの変更をレビューして
-```
-- Codex CLI がコードレビュー実行
-- 結果を PR コメントに追記
-
-### 4. 修正方針決定
-```
-/pr comment 指摘1: 修正する、指摘2: 見送り（理由: ...）
+/pr              # PR 作成
+/codex レビュー   # コードレビュー
 ```
 
-### 5. 最終修正 & マージ
-```
-# 修正後
-/pr merge
-```
+---
 
-## Related
+## Agent Reference
 
-- Base: `/speckit.implement`
-- Agents: `.claude/agents/zig-*.md`
-- Skills: `.claude/skills/zig-build-engineer/`, `.claude/skills/codex/`
+| Agent | 役割 | いつ |
+|-------|------|------|
+| `orchestrator` | タスク管理、計画立案、承認待ち | 最初に呼び出し |
+| `zig-architect` | 設計判断、architecture.md 更新 | 各タスクの最初 |
+| `zig-tdd` | TDD サイクル (RED→GREEN) | 設計判断後 |
+| `zig-build-resolver` | ビルド確認/修正 | TDD 後 |
+| `zig-refactor-cleaner` | リファクタリング | 全タスク完了後 |
+
+**すべての Agent は MANDATORY（必須）。スキップしない。**
+
+---
+
+## Agent Files
+
+- `.claude/agents/orchestrator.md`
+- `.claude/agents/zig-architect.md`
+- `.claude/agents/zig-tdd.md`
+- `.claude/agents/zig-build-resolver.md`
+- `.claude/agents/zig-refactor-cleaner.md`

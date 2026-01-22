@@ -353,6 +353,31 @@ User Input → libvaxis → app.handleEvent() → Update State → Render
 Filesystem → FileTree.scan() → Filter → TreeView.render() → Terminal
 ```
 
+## File Size Guidelines
+
+| 行数 | 状態 | アクション |
+|------|------|-----------|
+| 300-600 | 適正 | 読みやすさの目安 |
+| 600-1000 | 注意 | 分割を検討開始 |
+| 1000+ | 要分割 | モジュール分割を実施 |
+
+**重要**: 凝集度（関連する機能がまとまっている）を行数より優先する。
+
+```zig
+// 悪い例: 行数を減らすために関連機能を分離
+// file_tree.zig (400行) - ノード操作
+// file_tree_render.zig (200行) - レンダリング ← 関連機能が分離
+
+// 良い例: 凝集度を維持
+// file_tree.zig (600行) - ノード操作 + レンダリング ← 関連機能がまとまっている
+```
+
+分割の判断基準:
+1. **異なる責務**がある場合 → 分割
+2. **独立してテスト可能**な場合 → 分割検討
+3. **再利用可能なユーティリティ**がある場合 → 分割
+4. 単に行数が多いだけ → **分割しない**（凝集度優先）
+
 ## Anti-Patterns to Avoid
 
 1. **Global State**: Pass state explicitly

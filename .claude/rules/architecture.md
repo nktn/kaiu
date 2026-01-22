@@ -14,13 +14,13 @@ stateDiagram-v2
     TreeView --> TreeView: k (cursor up)
     TreeView --> TreeView: Enter on dir (toggle expand)
     TreeView --> TreeView: h on expanded (collapse)
-    TreeView --> TreeView: a (toggle hidden)
-    TreeView --> Preview: l/Enter on file
+    TreeView --> TreeView: . (toggle hidden)
+    TreeView --> Preview: o (open preview)
     TreeView --> [*]: q (quit)
 
     Preview --> Preview: j (scroll down)
     Preview --> Preview: k (scroll up)
-    Preview --> TreeView: h (close)
+    Preview --> TreeView: o (close preview)
     Preview --> [*]: q (quit)
 ```
 
@@ -30,12 +30,12 @@ stateDiagram-v2
 |------|-------|-----|--------|
 | TreeView | `j` | TreeView | cursor_down() |
 | TreeView | `k` | TreeView | cursor_up() |
-| TreeView | `l`/`Enter` on dir | TreeView | toggle_expand() |
-| TreeView | `l`/`Enter` on file | Preview | open_preview() |
+| TreeView | `l` on dir | TreeView | expand() |
+| TreeView | `o` on file | Preview | open_preview() |
 | TreeView | `h` on expanded dir | TreeView | collapse() |
-| TreeView | `a` | TreeView | toggle_hidden() |
+| TreeView | `.` | TreeView | toggle_hidden() |
 | TreeView | `q` | Quit | cleanup() |
-| Preview | `h` | TreeView | close_preview() |
+| Preview | `o` | TreeView | close_preview() |
 | Preview | `j` | Preview | scroll_down() |
 | Preview | `k` | Preview | scroll_up() |
 | Preview | `q` | Quit | cleanup() |
@@ -44,8 +44,11 @@ stateDiagram-v2
 
 ```zig
 pub const AppMode = enum {
-    tree_view,
-    preview,
+    tree_view,   // Main mode - file tree navigation
+    preview,     // Full-screen file preview
+    search,      // Phase 2: Search mode
+    path_input,  // Phase 2: Go to path mode
+    help,        // Phase 2: Help overlay
 };
 ```
 
@@ -78,6 +81,22 @@ src/
 
 ### AppState
 - (実装時に詳細追記)
+
+## File Size Guidelines
+
+| 行数 | 状態 | アクション |
+|------|------|-----------|
+| 300-600 | 適正 | 読みやすさの目安 |
+| 600-1000 | 注意 | 分割を検討開始 |
+| 1000+ | 要分割 | モジュール分割を実施 |
+
+**重要**: 凝集度（関連する機能がまとまっている）を行数より優先する。
+
+分割の判断基準:
+1. **異なる責務**がある場合 → 分割
+2. **独立してテスト可能**な場合 → 分割検討
+3. **再利用可能なユーティリティ**がある場合 → 分割
+4. 単に行数が多いだけ → **分割しない**（凝集度優先）
 
 ## Design Decisions Log
 

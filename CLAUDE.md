@@ -98,7 +98,7 @@ Planning                Implementation              Review & Merge
    /codex (レビュー) ──→ PR コメントに結果追記
       │
       ▼
-  修正方針決定 (/pr comment)
+  修正方針決定 ──→ Decision Log を PR コメントに追記
       │
       ▼
   最終修正
@@ -106,6 +106,26 @@ Planning                Implementation              Review & Merge
       ▼
    /pr merge
 ```
+
+### Decision Log ルール
+
+レビュー指摘を採用/スキップする際は、PR コメントに Decision Log を残す:
+
+```markdown
+## Decision Log
+
+### [指摘内容] (Severity - 採用/スキップ)
+
+**Issue**: 何が指摘されたか
+**Decision**: どうするか
+**Rationale**: なぜその判断か
+**Alternatives considered**: 他に検討した選択肢
+```
+
+**目的**:
+- 意思決定の経緯を記録
+- 後から「なぜこうなった？」を追跡可能に
+- レビュアーとの認識合わせ
 
 ### Commands
 

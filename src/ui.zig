@@ -161,6 +161,118 @@ pub fn renderPreview(
     }
 }
 
+pub fn renderHelp(win: vaxis.Window) !void {
+    const height = win.height;
+    const width = win.width;
+    if (height < 10 or width < 40) return;
+
+    // Center the help box
+    const box_width: u16 = @min(60, width - 4);
+    const box_height: u16 = @min(20, height - 4);
+    const start_col: u16 = (width - box_width) / 2;
+    const start_row: u16 = (height - box_height) / 2;
+
+    // Title
+    const title = "kaiu Help";
+    const title_col = start_col + (box_width - @as(u16, @intCast(title.len))) / 2;
+    _ = win.printSegment(.{
+        .text = title,
+        .style = .{ .bold = true, .reverse = true },
+    }, .{ .row_offset = start_row, .col_offset = title_col });
+
+    var row: u16 = start_row + 2;
+
+    // Navigation section
+    _ = win.printSegment(.{
+        .text = "Navigation",
+        .style = .{ .bold = true, .fg = .{ .index = 4 } },
+    }, .{ .row_offset = row, .col_offset = start_col });
+    row += 1;
+
+    const nav_keys = [_][2][]const u8{
+        .{ "j/k", "Move down/up" },
+        .{ "h/l", "Collapse/Expand" },
+        .{ "gg/G", "Jump top/bottom" },
+        .{ "H/L", "Collapse/Expand all" },
+        .{ "Tab", "Toggle expand" },
+        .{ "gn", "Go to path" },
+    };
+
+    for (nav_keys) |kv| {
+        _ = win.printSegment(.{
+            .text = kv[0],
+            .style = .{ .fg = .{ .index = 3 } },
+        }, .{ .row_offset = row, .col_offset = start_col + 2 });
+        _ = win.printSegment(.{
+            .text = kv[1],
+        }, .{ .row_offset = row, .col_offset = start_col + 12 });
+        row += 1;
+    }
+
+    row += 1;
+
+    // Search section
+    _ = win.printSegment(.{
+        .text = "Search",
+        .style = .{ .bold = true, .fg = .{ .index = 4 } },
+    }, .{ .row_offset = row, .col_offset = start_col });
+    row += 1;
+
+    const search_keys = [_][2][]const u8{
+        .{ "/", "Search" },
+        .{ "n/N", "Next/Prev match" },
+    };
+
+    for (search_keys) |kv| {
+        _ = win.printSegment(.{
+            .text = kv[0],
+            .style = .{ .fg = .{ .index = 3 } },
+        }, .{ .row_offset = row, .col_offset = start_col + 2 });
+        _ = win.printSegment(.{
+            .text = kv[1],
+        }, .{ .row_offset = row, .col_offset = start_col + 12 });
+        row += 1;
+    }
+
+    row += 1;
+
+    // Other section
+    _ = win.printSegment(.{
+        .text = "Other",
+        .style = .{ .bold = true, .fg = .{ .index = 4 } },
+    }, .{ .row_offset = row, .col_offset = start_col });
+    row += 1;
+
+    const other_keys = [_][2][]const u8{
+        .{ ".", "Toggle hidden" },
+        .{ "R", "Reload tree" },
+        .{ "c/C", "Copy path/name" },
+        .{ "o/Enter", "Open/Preview" },
+        .{ "q", "Quit" },
+    };
+
+    for (other_keys) |kv| {
+        _ = win.printSegment(.{
+            .text = kv[0],
+            .style = .{ .fg = .{ .index = 3 } },
+        }, .{ .row_offset = row, .col_offset = start_col + 2 });
+        _ = win.printSegment(.{
+            .text = kv[1],
+        }, .{ .row_offset = row, .col_offset = start_col + 12 });
+        row += 1;
+    }
+
+    row += 2;
+
+    // Footer
+    const footer = "Press any key to close";
+    const footer_col = start_col + (box_width - @as(u16, @intCast(footer.len))) / 2;
+    _ = win.printSegment(.{
+        .text = footer,
+        .style = .{ .fg = .{ .index = 8 } },
+    }, .{ .row_offset = row, .col_offset = footer_col });
+}
+
 test "renderEntry does not crash with empty window" {
     // Basic smoke test - just ensure the function signature is correct
     const entry = tree.FileEntry{
