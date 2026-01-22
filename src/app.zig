@@ -28,6 +28,7 @@ pub const App = struct {
     vx: vaxis.Vaxis,
     loop: vaxis.Loop(Event),
     tty_buf: [4096]u8,
+    render_arena: std.heap.ArenaAllocator,
 
     const Self = @This();
 
@@ -48,6 +49,7 @@ pub const App = struct {
             .should_quit = false,
             .tty = undefined,
             .vx = undefined,
+            .render_arena = std.heap.ArenaAllocator.init(allocator),
             .loop = undefined,
             .tty_buf = undefined,
         };
@@ -77,6 +79,7 @@ pub const App = struct {
         if (self.preview_path) |path| {
             self.allocator.free(path);
         }
+        self.render_arena.deinit();
         self.allocator.destroy(self);
     }
 
@@ -285,6 +288,9 @@ pub const App = struct {
     }
 
     fn render(self: *Self, writer: anytype) !void {
+        // Reset render arena - frees all allocations from previous render
+        _ = self.render_arena.reset(.retain_capacity);
+
         const win = self.vx.window();
         win.clear();
 
@@ -300,7 +306,7 @@ pub const App = struct {
                 // Full screen preview (simpler, avoids child window issues)
                 if (self.preview_content) |content| {
                     const filename = if (self.preview_path) |p| std.fs.path.basename(p) else "preview";
-                    try ui.renderPreview(win, content, filename, self.preview_scroll);
+                    try ui.renderPreview(win, content, filename, self.preview_scroll, self.render_arena.allocator());
                 }
             },
         }

@@ -2,6 +2,7 @@ const std = @import("std");
 const vaxis = @import("vaxis");
 const tree = @import("tree.zig");
 
+
 pub fn renderTree(
     win: vaxis.Window,
     ft: *tree.FileTree,
@@ -110,6 +111,7 @@ pub fn renderPreview(
     content: []const u8,
     filename: []const u8,
     scroll: usize,
+    arena: std.mem.Allocator,
 ) !void {
     const height = win.height;
     if (height == 0) return;
@@ -119,6 +121,10 @@ pub fn renderPreview(
         .text = filename,
         .style = .{ .bold = true, .reverse = true },
     }, .{ .row_offset = 0, .col_offset = 0 });
+
+    // Count total lines to determine line number width
+    const total_lines = std.mem.count(u8, content, "\n") + 1;
+    const line_num_width: usize = if (total_lines < 10) 1 else if (total_lines < 100) 2 else if (total_lines < 1000) 3 else if (total_lines < 10000) 4 else 5;
 
     // Content with line numbers
     var lines = std.mem.splitScalar(u8, content, '\n');
@@ -133,18 +139,21 @@ pub fn renderPreview(
 
         if (row >= height) break;
 
-        // Print line number using string literal
+        // Format line number dynamically using arena allocator
+        // The arena persists until after vaxis.render() completes
+        const line_num_str = try std.fmt.allocPrint(arena, "{d:>[1]} ", .{ line_num + 1, line_num_width });
         _ = win.printSegment(.{
-            .text = "   1 ",
+            .text = line_num_str,
             .style = .{ .fg = .{ .index = 8 } },
         }, .{ .row_offset = row, .col_offset = 0 });
 
         // Print line content
-        const max_len = @min(line.len, win.width -| 5);
+        const col_offset: u16 = @intCast(line_num_width + 1);
+        const max_len = @min(line.len, win.width -| col_offset);
         if (max_len > 0) {
             _ = win.printSegment(.{
                 .text = line[0..max_len],
-            }, .{ .row_offset = row, .col_offset = 5 });
+            }, .{ .row_offset = row, .col_offset = col_offset });
         }
 
         line_num += 1;
