@@ -3,8 +3,27 @@
     "allow": [
       "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(zig build)",
+      "Bash(zig build run)",
+      "Bash(zig build test)",
+      "Bash(zig build -Doptimize=*)",
+      "Bash(git status)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git add *)",
+      "Bash(git commit*)",
+      "Bash(git branch:*)",
+      "Bash(git checkout:*)",
+      "Bash(git push*)",
       "Bash(gh api:*)",
-      "Skill(tdd)"
+      "Bash(gh pr *)",
+      "Skill(tdd)",
+      "Skill(build-fix)",
+      "Skill(codex)",
+      "Skill(pr)",
+      "Skill(implement)",
+      "Skill(learn)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nrefactor: slim down CLAUDE.md following best practices\n\n- Reduce CLAUDE.md from 241 to 48 lines \\(~80% reduction\\)\n- Apply \"ruthless curation\" principle: keep only what Claude needs\n- Use @import syntax to reference detailed rules files\n- Remove duplicate info \\(workflow diagrams, security/performance summaries\\)\n  already documented in .claude/rules/\n\n- Expand permissions for smoother workflow:\n  - zig build commands \\(build, run, test, optimize\\)\n  - git operations \\(status, diff, log, add, commit, push\\)\n  - Skills \\(tdd, build-fix, codex, pr, implement, learn\\)\n\nBased on: https://code.claude.com/docs/en/best-practices\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
     ]
   }
 }
