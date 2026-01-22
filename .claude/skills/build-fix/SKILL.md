@@ -1,5 +1,8 @@
 ---
-description: Incrementally fix Zig build and compilation errors with minimal changes.
+name: build-fix
+description: >
+  Incrementally fix Zig build and compilation errors with minimal changes.
+  トリガー: "build-fix", "ビルドエラー", "/build-fix"
 ---
 
 # Zig Build Fix
@@ -69,13 +72,7 @@ Fix:
 Lines changed: 1
 ```
 
-## Integration with Speckit
-
-Use during `/speckit.implement` when `zig build` fails:
-1. Fix errors before proceeding to next task
-2. Keep changes minimal to stay on track
-
 ## Related
 
 - Agent: `.claude/agents/zig-build-resolver.md`
-- Workflow: `/speckit.implement`
+- Workflow: `/implement`

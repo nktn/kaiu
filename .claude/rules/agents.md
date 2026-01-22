@@ -21,6 +21,12 @@ Agent の使い分けと実行戦略。
 | Skill | 役割 | 呼び出し |
 |-------|------|---------|
 | `codex` | コードレビュー (Codex CLI) | `/codex` |
+| `implement` | Zig 統合実装 (TDD + build-fix) | `/implement` |
+| `tdd` | Red-Green-Refactor | `/tdd` |
+| `build-fix` | ビルドエラー修正 | `/build-fix` |
+| `learn` | パターン保存 | `/learn` |
+| `pr` | PR 作成・管理 | `/pr` |
+| `speckit` | 仕様駆動開発ワークフロー | `/speckit.*` |
 | `zig-build-engineer` | build.zig パターン・API | 自動参照 |
 
 ## When to Use Each Agent

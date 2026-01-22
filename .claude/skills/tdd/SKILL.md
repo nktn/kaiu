@@ -1,5 +1,8 @@
 ---
-description: Enforce test-driven development for Zig. Write failing tests FIRST, then implement minimal code to pass.
+name: tdd
+description: >
+  Enforce test-driven development for Zig. Write failing tests FIRST, then implement minimal code to pass.
+  トリガー: "tdd", "テスト駆動", "/tdd"
 ---
 
 # Zig TDD
@@ -67,7 +70,6 @@ test "memory cleanup" {
 
     const obj = try module.create(gpa.allocator());
     defer obj.deinit();
-    // ...
 }
 ```
 
@@ -88,13 +90,7 @@ zig build test -- --verbose       # Verbose output
 zig test src/file.zig --test-filter "name"  # Filter tests
 ```
 
-## Integration with Speckit
-
-Use during `/speckit.implement` when tasks.md indicates TDD approach:
-1. For each task in tasks.md, apply Red-Green-Refactor
-2. Mark task `[X]` only after tests pass
-
 ## Related
 
 - Agent: `.claude/agents/zig-tdd.md`
-- Workflow: `/speckit.implement`
+- Workflow: `/implement`

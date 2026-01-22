@@ -1,5 +1,8 @@
 ---
-description: Extract reusable Zig patterns from current session and save as skills.
+name: learn
+description: >
+  Extract reusable Zig patterns from current session and save as skills.
+  トリガー: "learn", "パターン保存", "/learn"
 ---
 
 # Zig Learn
@@ -79,10 +82,3 @@ description: [When to use this pattern]
 - Trivial typo fixes
 - One-time issues
 - Generic programming advice
-
-## Integration with Speckit
-
-Use after `/speckit.implement` completes a feature:
-1. Review what was learned during implementation
-2. Extract patterns that could help future features
-3. Save to `.claude/skills/learned/` for reuse

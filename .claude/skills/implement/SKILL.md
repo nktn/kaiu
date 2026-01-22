@@ -1,5 +1,8 @@
 ---
-description: Execute implementation with Zig-specific TDD, build fixing, and code review integrated. Orchestrator が計画を立て、承認後に各 Agent を呼び出す。
+name: implement
+description: >
+  Execute implementation with Zig-specific TDD, build fixing, and code review integrated. Orchestrator が計画を立て、承認後に各 Agent を呼び出す。
+  トリガー: "implement", "実装", "/implement"
 ---
 
 # Zig Implementation
@@ -39,8 +42,6 @@ $ARGUMENTS
 └─────────────────────────────────────────────────────────────┘
 ```
 
----
-
 ## Execution Steps
 
 ### Step 1: Setup
@@ -48,8 +49,6 @@ $ARGUMENTS
 ```bash
 git checkout -b feat/<feature-name>
 ```
-
----
 
 ### Step 2: Orchestrator 起動 (MANDATORY)
 
@@ -75,9 +74,7 @@ Phase 3: Completion
 ")
 ```
 
----
-
-## 計画出力フォーマット (orchestrator が出力)
+## 計画出力フォーマット
 
 ```
 === 実行計画 ===
@@ -93,12 +90,6 @@ Task 1.1: Project Setup
   ├── 影響範囲: なし
   └── Agent: zig-architect → zig-tdd → zig-build-resolver
 
-Task 1.2: Directory Reading
-  ├── 変更ファイル: src/tree.zig
-  ├── 変更内容: FileTree 実装
-  ├── 影響範囲: なし
-  └── Agent: zig-architect → zig-tdd → zig-build-resolver
-
 ... (全タスク)
 
 ■ 全タスク完了後
@@ -108,96 +99,6 @@ Task 1.2: Directory Reading
 ```
 
 **承認があるまでコードを書かない。**
-
----
-
-## Agent Calls (orchestrator が実行)
-
-### 各タスクで呼び出す Agent (MANDATORY)
-
-#### 1. zig-architect
-
-```
-Task(subagent_type: "zig-architect", prompt: "
-タスク: [タスク名]
-内容: [タスクの説明]
-
-設計判断を行い、architecture.md に記録してください。
-")
-```
-
-#### 2. zig-tdd
-
-```
-Task(subagent_type: "zig-tdd", prompt: "
-タスク: [タスク名]
-設計: [zig-architect の出力を参照]
-
-TDD サイクルを実行:
-1. RED: 失敗するテストを書く
-2. GREEN: 最小限のコードで通す
-3. テスト成功を確認
-")
-```
-
-#### 3. zig-build-resolver
-
-```
-Task(subagent_type: "zig-build-resolver", prompt: "
-zig build と zig build test を実行。
-エラーがあれば修正、なければ「ビルド成功」と報告。
-")
-```
-
-#### 4. タスク完了マーク
-
-```
-tasks.md を更新:
-- [ ] Task description  →  - [x] Task description
-```
-
----
-
-### 全タスク完了後 (MANDATORY)
-
-#### zig-refactor-cleaner
-
-```
-Task(subagent_type: "zig-refactor-cleaner", prompt: "
-全タスクが完了しました。
-1. Compiler warnings 確認・修正
-2. 未使用コード削除
-3. 重複コード統合
-4. Zig イディオム適用
-5. 全テスト成功を確認
-")
-```
-
----
-
-## Completion Checklist
-
-- [ ] 全タスクに `[x]` がついている
-- [ ] architecture.md に設計判断が記録されている
-- [ ] `zig build` 成功
-- [ ] `zig build test` 成功
-
----
-
-## Post-Implementation
-
-```bash
-git add <files>
-git commit -m "feat: <description>"
-git push -u origin feat/<feature-name>
-```
-
-```
-/pr              # PR 作成
-/codex レビュー   # コードレビュー
-```
-
----
 
 ## Agent Reference
 
@@ -211,12 +112,22 @@ git push -u origin feat/<feature-name>
 
 **すべての Agent は MANDATORY（必須）。スキップしない。**
 
----
+## Completion Checklist
 
-## Agent Files
+- [ ] 全タスクに `[x]` がついている
+- [ ] architecture.md に設計判断が記録されている
+- [ ] `zig build` 成功
+- [ ] `zig build test` 成功
 
-- `.claude/agents/orchestrator.md`
-- `.claude/agents/zig-architect.md`
-- `.claude/agents/zig-tdd.md`
-- `.claude/agents/zig-build-resolver.md`
-- `.claude/agents/zig-refactor-cleaner.md`
+## Post-Implementation
+
+```bash
+git add <files>
+git commit -m "feat: <description>"
+git push -u origin feat/<feature-name>
+```
+
+```
+/pr              # PR 作成
+/codex レビュー   # コードレビュー
+```
