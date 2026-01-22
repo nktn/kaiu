@@ -24,7 +24,7 @@
       "Skill(implement)",
       "Skill(learn)",
       "Bash(git add:*)",
-      "Bash(git commit -m \"$\\(cat <<''EOF''\nfix: address Codex review findings\n\n## High\n- Remove `Bash\\(codex exec:*\\)` - allows arbitrary command execution\n\n## Medium\n- Remove `Bash\\(git add *\\)` - can stage secrets\n- Change `Bash\\(git checkout:*\\)` → `Bash\\(git checkout -b *\\)` - branch creation only\n- Change `Bash\\(git push*\\)` → `Bash\\(git push\\)` + `Bash\\(git push -u *\\)` - no force push\n\n## Low\n- Remove duplicate git commit entries\n- Remove redundant gh pr entries \\(covered by `gh pr *`\\)\n- Move Decision Log rules to agents.md \\(referenced from CLAUDE.md\\)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nchore: clean up auto-added permission entries\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
     ]
   }
 }
