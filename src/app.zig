@@ -806,8 +806,10 @@ pub const App = struct {
             .tree_view => {
                 // Show current directory path
                 if (self.file_tree) |ft| {
-                    const max_path_width = win.width -| 20; // Leave room for status
-                    if (ft.root_path.len > max_path_width) {
+                    const max_path_width: usize = @as(usize, win.width) -| 20; // Leave room for status
+                    if (max_path_width <= 3) {
+                        // Window too narrow, skip path display
+                    } else if (ft.root_path.len > max_path_width) {
                         // Show "..." prefix for long paths
                         _ = win.printSegment(.{
                             .text = "...",
