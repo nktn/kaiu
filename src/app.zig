@@ -228,7 +228,8 @@ pub const App = struct {
             'q' => self.should_quit = true,
             'j', vaxis.Key.down => self.moveCursor(1),
             'k', vaxis.Key.up => self.moveCursor(-1),
-            'l', 'o', vaxis.Key.enter => try self.handleEnter(),
+            'l', vaxis.Key.enter => try self.expandOrEnter(),
+            'o' => try self.togglePreview(),
             'h' => self.handleBack(),
             '.' => self.toggleHidden(), // Changed from 'a' to '.'
             'g' => self.pending_key.set('g'), // Start multi-key sequence
@@ -250,7 +251,7 @@ pub const App = struct {
     fn handlePreviewKey(self: *Self, key_char: u21) void {
         switch (key_char) {
             'q' => self.should_quit = true,
-            'h' => self.closePreview(),
+            'o', 'h' => self.closePreview(),
             'j' => self.preview_scroll +|= 1,
             'k' => if (self.preview_scroll > 0) {
                 self.preview_scroll -= 1;
@@ -370,7 +371,8 @@ pub const App = struct {
         }
     }
 
-    fn handleEnter(self: *Self) !void {
+    /// l/Enter: expand directory, or open preview for files
+    fn expandOrEnter(self: *Self) !void {
         if (self.file_tree == null) return;
         const ft = self.file_tree.?;
 
@@ -382,6 +384,20 @@ pub const App = struct {
         } else {
             try self.openPreview(entry.path);
         }
+    }
+
+    /// o: toggle preview (open on file, close if already in preview)
+    fn togglePreview(self: *Self) !void {
+        if (self.file_tree == null) return;
+        const ft = self.file_tree.?;
+
+        const actual_index = ft.visibleToActualIndex(self.cursor, self.show_hidden) orelse return;
+
+        const entry = &ft.entries.items[actual_index];
+        if (entry.kind != .directory) {
+            try self.openPreview(entry.path);
+        }
+        // On directory, o does nothing
     }
 
     fn handleBack(self: *Self) void {
