@@ -6,11 +6,45 @@ const ui = @import("ui.zig");
 pub const AppMode = enum {
     tree_view,
     preview,
+    search,
+    path_input,
+    help,
 };
 
 pub const Event = union(enum) {
     key_press: vaxis.Key,
     winsize: vaxis.Winsize,
+};
+
+/// Pending key for multi-key commands (e.g., 'g' for gg/gn)
+const PendingKey = struct {
+    key: ?u21,
+    timestamp: i64,
+
+    const timeout_ms: i64 = 500;
+
+    fn set(self: *PendingKey, k: u21) void {
+        self.key = k;
+        self.timestamp = std.time.milliTimestamp();
+    }
+
+    fn clear(self: *PendingKey) void {
+        self.key = null;
+    }
+
+    fn isExpired(self: *const PendingKey) bool {
+        if (self.key == null) return true;
+        const now = std.time.milliTimestamp();
+        return (now - self.timestamp) > timeout_ms;
+    }
+
+    fn get(self: *PendingKey) ?u21 {
+        if (self.isExpired()) {
+            self.clear();
+            return null;
+        }
+        return self.key;
+    }
 };
 
 pub const App = struct {
@@ -29,6 +63,20 @@ pub const App = struct {
     loop: vaxis.Loop(Event),
     tty_buf: [4096]u8,
     render_arena: std.heap.ArenaAllocator,
+
+    // Multi-key command state
+    pending_key: PendingKey,
+
+    // Status message (for feedback like "Copied: ...")
+    status_message: ?[]const u8,
+
+    // Input buffer for search/path input modes
+    input_buffer: std.ArrayList(u8),
+
+    // Search state
+    search_query: ?[]const u8,
+    search_matches: std.ArrayList(usize), // indices of matching entries
+    current_match: usize,
 
     const Self = @This();
 
@@ -52,6 +100,12 @@ pub const App = struct {
             .render_arena = std.heap.ArenaAllocator.init(allocator),
             .loop = undefined,
             .tty_buf = undefined,
+            .pending_key = .{ .key = null, .timestamp = 0 },
+            .status_message = null,
+            .input_buffer = .empty,
+            .search_query = null,
+            .search_matches = .empty,
+            .current_match = 0,
         };
 
         self.tty = try vaxis.Tty.init(&self.tty_buf);
@@ -79,6 +133,11 @@ pub const App = struct {
         if (self.preview_path) |path| {
             self.allocator.free(path);
         }
+        if (self.search_query) |query| {
+            self.allocator.free(query);
+        }
+        self.input_buffer.deinit(self.allocator);
+        self.search_matches.deinit(self.allocator);
         self.render_arena.deinit();
         self.allocator.destroy(self);
     }
@@ -129,30 +188,136 @@ pub const App = struct {
     fn handleKey(self: *Self, key: vaxis.Key) !void {
         const key_char = key.codepoint;
 
+        // Clear status message on any key press
+        self.status_message = null;
+
         switch (self.mode) {
-            .tree_view => {
+            .tree_view => try self.handleTreeViewKey(key_char),
+            .preview => self.handlePreviewKey(key_char),
+            .search => try self.handleSearchKey(key, key_char),
+            .path_input => try self.handlePathInputKey(key, key_char),
+            .help => self.handleHelpKey(),
+        }
+    }
+
+    fn handleTreeViewKey(self: *Self, key_char: u21) !void {
+        // Check for pending multi-key command
+        if (self.pending_key.get()) |pending| {
+            self.pending_key.clear();
+
+            if (pending == 'g') {
                 switch (key_char) {
-                    'q' => self.should_quit = true,
-                    'j' => self.moveCursor(1),
-                    'k' => self.moveCursor(-1),
-                    'l', 'o', vaxis.Key.enter => try self.handleEnter(),
-                    'h' => self.handleBack(),
-                    'a' => self.toggleHidden(),
-                    else => {},
+                    'g' => {
+                        // gg - jump to top
+                        self.jumpToTop();
+                        return;
+                    },
+                    'n' => {
+                        // gn - enter path input mode
+                        self.enterPathInputMode();
+                        return;
+                    },
+                    else => {
+                        // Invalid sequence, fall through to normal handling
+                    },
+                }
+            }
+        }
+
+        switch (key_char) {
+            'q' => self.should_quit = true,
+            'j' => self.moveCursor(1),
+            'k' => self.moveCursor(-1),
+            'l', 'o', vaxis.Key.enter => try self.handleEnter(),
+            'h' => self.handleBack(),
+            '.' => self.toggleHidden(), // Changed from 'a' to '.'
+            'g' => self.pending_key.set('g'), // Start multi-key sequence
+            'G' => self.jumpToBottom(),
+            'H' => self.collapseAll(),
+            'L' => try self.expandAll(),
+            vaxis.Key.tab => try self.toggleCurrentDirectory(),
+            '/' => self.enterSearchMode(),
+            'n' => self.nextSearchMatch(),
+            'N' => self.prevSearchMatch(),
+            'R' => try self.reloadTree(),
+            'c' => try self.copyPathToClipboard(false),
+            'C' => try self.copyPathToClipboard(true),
+            '?' => self.enterHelpMode(),
+            else => {},
+        }
+    }
+
+    fn handlePreviewKey(self: *Self, key_char: u21) void {
+        switch (key_char) {
+            'q' => self.should_quit = true,
+            'h' => self.closePreview(),
+            'j' => self.preview_scroll +|= 1,
+            'k' => if (self.preview_scroll > 0) {
+                self.preview_scroll -= 1;
+            },
+            else => {},
+        }
+    }
+
+    fn handleSearchKey(self: *Self, key: vaxis.Key, key_char: u21) !void {
+        switch (key_char) {
+            vaxis.Key.escape => {
+                // Clear search and return to normal mode
+                self.clearSearch();
+                self.mode = .tree_view;
+            },
+            vaxis.Key.enter => {
+                // Confirm search and return to normal mode
+                self.mode = .tree_view;
+            },
+            vaxis.Key.backspace => {
+                // Remove last character
+                if (self.input_buffer.items.len > 0) {
+                    _ = self.input_buffer.pop();
+                    try self.updateSearchResults();
                 }
             },
-            .preview => {
-                switch (key_char) {
-                    'q' => self.should_quit = true,
-                    'h' => self.closePreview(),
-                    'j' => self.preview_scroll +|= 1,
-                    'k' => if (self.preview_scroll > 0) {
-                        self.preview_scroll -= 1;
-                    },
-                    else => {},
+            else => {
+                // Add printable character to search buffer
+                if (key_char >= 0x20 and key_char < 0x7F) {
+                    try self.input_buffer.append(self.allocator, @intCast(key_char));
+                    try self.updateSearchResults();
                 }
             },
         }
+        _ = key;
+    }
+
+    fn handlePathInputKey(self: *Self, key: vaxis.Key, key_char: u21) !void {
+        switch (key_char) {
+            vaxis.Key.escape => {
+                // Cancel and return to normal mode
+                self.input_buffer.clearRetainingCapacity();
+                self.mode = .tree_view;
+            },
+            vaxis.Key.enter => {
+                // Validate and navigate to path
+                try self.navigateToInputPath();
+            },
+            vaxis.Key.backspace => {
+                // Remove last character
+                if (self.input_buffer.items.len > 0) {
+                    _ = self.input_buffer.pop();
+                }
+            },
+            else => {
+                // Add printable character to input buffer
+                if (key_char >= 0x20 and key_char < 0x7F) {
+                    try self.input_buffer.append(self.allocator, @intCast(key_char));
+                }
+            },
+        }
+        _ = key;
+    }
+
+    fn handleHelpKey(self: *Self) void {
+        // Any key dismisses help
+        self.mode = .tree_view;
     }
 
     fn moveCursor(self: *Self, delta: i32) void {
@@ -294,6 +459,260 @@ pub const App = struct {
         self.mode = .tree_view;
     }
 
+    // ===== Jump Commands (Task 2.2) =====
+
+    fn jumpToTop(self: *Self) void {
+        self.cursor = 0;
+        self.scroll_offset = 0;
+    }
+
+    fn jumpToBottom(self: *Self) void {
+        if (self.file_tree) |ft| {
+            const visible_count = ft.countVisible(self.show_hidden);
+            if (visible_count > 0) {
+                self.cursor = visible_count - 1;
+            }
+        }
+    }
+
+    // ===== Expand/Collapse All (Task 2.3) =====
+
+    fn collapseAll(self: *Self) void {
+        if (self.file_tree) |ft| {
+            // Collapse from end to start to avoid index issues
+            var i: usize = ft.entries.items.len;
+            while (i > 0) {
+                i -= 1;
+                const entry = &ft.entries.items[i];
+                if (entry.kind == .directory and entry.expanded) {
+                    ft.collapseAt(i);
+                }
+            }
+            // Reset cursor to bounds
+            const visible_count = ft.countVisible(self.show_hidden);
+            if (self.cursor >= visible_count and visible_count > 0) {
+                self.cursor = visible_count - 1;
+            }
+        }
+    }
+
+    fn expandAll(self: *Self) !void {
+        if (self.file_tree) |ft| {
+            // Expand directories iteratively (new entries may be added)
+            var i: usize = 0;
+            while (i < ft.entries.items.len) {
+                const entry = &ft.entries.items[i];
+                if (entry.kind == .directory and !entry.expanded) {
+                    try ft.toggleExpand(i);
+                }
+                i += 1;
+            }
+        }
+    }
+
+    fn toggleCurrentDirectory(self: *Self) !void {
+        if (self.file_tree == null) return;
+        const ft = self.file_tree.?;
+
+        const actual_index = ft.visibleToActualIndex(self.cursor, self.show_hidden) orelse return;
+        const entry = &ft.entries.items[actual_index];
+
+        if (entry.kind == .directory) {
+            try ft.toggleExpand(actual_index);
+        }
+    }
+
+    // ===== Search Mode (Task 2.5, 2.6, 2.7, 2.8) =====
+
+    fn enterSearchMode(self: *Self) void {
+        self.input_buffer.clearRetainingCapacity();
+        self.mode = .search;
+    }
+
+    fn clearSearch(self: *Self) void {
+        self.input_buffer.clearRetainingCapacity();
+        if (self.search_query) |query| {
+            self.allocator.free(query);
+            self.search_query = null;
+        }
+        self.search_matches.clearRetainingCapacity();
+        self.current_match = 0;
+    }
+
+    fn updateSearchResults(self: *Self) !void {
+        if (self.file_tree == null) return;
+        const ft = self.file_tree.?;
+
+        // Clear previous matches
+        self.search_matches.clearRetainingCapacity();
+
+        if (self.input_buffer.items.len == 0) return;
+
+        // Find matching entries (case-insensitive)
+        const query = self.input_buffer.items;
+        for (ft.entries.items, 0..) |entry, i| {
+            if (!self.show_hidden and entry.is_hidden) continue;
+            if (containsIgnoreCase(entry.name, query)) {
+                try self.search_matches.append(self.allocator, i);
+            }
+        }
+
+        // Jump to first match
+        if (self.search_matches.items.len > 0) {
+            self.current_match = 0;
+            const actual_index = self.search_matches.items[0];
+            // Convert actual index to visible index
+            if (ft.actualToVisibleIndex(actual_index, self.show_hidden)) |visible_index| {
+                self.cursor = visible_index;
+            }
+        }
+    }
+
+    fn nextSearchMatch(self: *Self) void {
+        if (self.search_matches.items.len == 0) return;
+        if (self.file_tree == null) return;
+        const ft = self.file_tree.?;
+
+        self.current_match = (self.current_match + 1) % self.search_matches.items.len;
+        const actual_index = self.search_matches.items[self.current_match];
+        if (ft.actualToVisibleIndex(actual_index, self.show_hidden)) |visible_index| {
+            self.cursor = visible_index;
+        }
+    }
+
+    fn prevSearchMatch(self: *Self) void {
+        if (self.search_matches.items.len == 0) return;
+        if (self.file_tree == null) return;
+        const ft = self.file_tree.?;
+
+        if (self.current_match == 0) {
+            self.current_match = self.search_matches.items.len - 1;
+        } else {
+            self.current_match -= 1;
+        }
+        const actual_index = self.search_matches.items[self.current_match];
+        if (ft.actualToVisibleIndex(actual_index, self.show_hidden)) |visible_index| {
+            self.cursor = visible_index;
+        }
+    }
+
+    // ===== Path Navigation (Task 2.4) =====
+
+    fn enterPathInputMode(self: *Self) void {
+        self.input_buffer.clearRetainingCapacity();
+        self.mode = .path_input;
+    }
+
+    fn navigateToInputPath(self: *Self) !void {
+        if (self.input_buffer.items.len == 0) {
+            self.mode = .tree_view;
+            return;
+        }
+
+        // Expand ~ to home directory
+        var path_buf: [std.fs.max_path_bytes]u8 = undefined;
+        const input_path = self.input_buffer.items;
+        var resolved_path: []const u8 = undefined;
+
+        if (input_path.len > 0 and input_path[0] == '~') {
+            const home = std.posix.getenv("HOME") orelse {
+                self.status_message = "Cannot resolve home directory";
+                return;
+            };
+            if (input_path.len == 1) {
+                resolved_path = home;
+            } else {
+                const written = std.fmt.bufPrint(&path_buf, "{s}{s}", .{ home, input_path[1..] }) catch {
+                    self.status_message = "Path too long";
+                    return;
+                };
+                resolved_path = written;
+            }
+        } else {
+            resolved_path = input_path;
+        }
+
+        // Check if path exists
+        const stat = std.fs.cwd().statFile(resolved_path) catch {
+            self.status_message = "Invalid path";
+            return;
+        };
+
+        // Determine target directory
+        var target_dir: []const u8 = undefined;
+        if (stat.kind == .directory) {
+            target_dir = resolved_path;
+        } else {
+            // File path - get parent directory
+            target_dir = std.fs.path.dirname(resolved_path) orelse ".";
+        }
+
+        // Reload tree at new path
+        if (self.file_tree) |ft| {
+            ft.deinit();
+        }
+        self.file_tree = try tree.FileTree.init(self.allocator, target_dir);
+        try self.file_tree.?.readDirectory();
+
+        self.cursor = 0;
+        self.scroll_offset = 0;
+        self.input_buffer.clearRetainingCapacity();
+        self.mode = .tree_view;
+    }
+
+    // ===== Reload Tree (Task 2.10) =====
+
+    fn reloadTree(self: *Self) !void {
+        if (self.file_tree) |ft| {
+            const root_path = try self.allocator.dupe(u8, ft.root_path);
+            defer self.allocator.free(root_path);
+
+            ft.deinit();
+            self.file_tree = try tree.FileTree.init(self.allocator, root_path);
+            try self.file_tree.?.readDirectory();
+
+            // Clamp cursor
+            const visible_count = self.file_tree.?.countVisible(self.show_hidden);
+            if (self.cursor >= visible_count and visible_count > 0) {
+                self.cursor = visible_count - 1;
+            }
+            self.status_message = "Reloaded";
+        }
+    }
+
+    // ===== Clipboard Operations (Task 2.11) =====
+
+    fn copyPathToClipboard(self: *Self, filename_only: bool) !void {
+        if (self.file_tree == null) return;
+        const ft = self.file_tree.?;
+
+        const actual_index = ft.visibleToActualIndex(self.cursor, self.show_hidden) orelse return;
+        const entry = &ft.entries.items[actual_index];
+
+        const text = if (filename_only) entry.name else entry.path;
+
+        // Use OSC 52 to copy to clipboard
+        const writer = self.tty.writer();
+        const encoded = try encodeBase64(self.render_arena.allocator(), text);
+
+        // OSC 52: \x1b]52;c;<base64>\x07
+        try writer.print("\x1b]52;c;{s}\x07", .{encoded});
+        try writer.flush();
+
+        // Set status message
+        if (filename_only) {
+            self.status_message = "Copied filename";
+        } else {
+            self.status_message = "Copied path";
+        }
+    }
+
+    // ===== Help Mode (Task 2.12) =====
+
+    fn enterHelpMode(self: *Self) void {
+        self.mode = .help;
+    }
+
     fn render(self: *Self, writer: anytype) !void {
         // Reset render arena - frees all allocations from previous render
         _ = self.render_arena.reset(.retain_capacity);
@@ -301,26 +720,136 @@ pub const App = struct {
         const win = self.vx.window();
         win.clear();
 
+        const height = win.height;
+
         switch (self.mode) {
-            .tree_view => {
+            .tree_view, .search, .path_input => {
+                // Main tree view (leave room for status bar)
+                const tree_height = if (height > 2) height - 2 else height;
                 if (self.file_tree) |ft| {
                     try ui.renderTree(win, ft, self.cursor, self.scroll_offset, self.show_hidden);
                 } else {
                     _ = win.printSegment(.{ .text = "No directory loaded" }, .{});
                 }
+
+                // Status bar at bottom
+                try self.renderStatusBar(win, tree_height);
             },
             .preview => {
-                // Full screen preview (simpler, avoids child window issues)
                 if (self.preview_content) |content| {
                     const filename = if (self.preview_path) |p| std.fs.path.basename(p) else "preview";
                     try ui.renderPreview(win, content, filename, self.preview_scroll, self.render_arena.allocator());
                 }
             },
+            .help => {
+                try ui.renderHelp(win);
+            },
         }
 
         try self.vx.render(writer);
     }
+
+    fn renderStatusBar(self: *Self, win: vaxis.Window, row: u16) !void {
+        const arena = self.render_arena.allocator();
+
+        // Mode indicator and input
+        switch (self.mode) {
+            .search => {
+                // Search mode: "/query" [N matches]
+                const match_count = self.search_matches.items.len;
+                const query = self.input_buffer.items;
+                const status = try std.fmt.allocPrint(arena, "/{s}█  [{d} matches]", .{ query, match_count });
+                _ = win.printSegment(.{
+                    .text = status,
+                    .style = .{ .reverse = true },
+                }, .{ .row_offset = row, .col_offset = 0 });
+            },
+            .path_input => {
+                // Path input mode: "Go to: path"
+                const path = self.input_buffer.items;
+                const status = try std.fmt.allocPrint(arena, "Go to: {s}█", .{path});
+                _ = win.printSegment(.{
+                    .text = status,
+                    .style = .{ .reverse = true },
+                }, .{ .row_offset = row, .col_offset = 0 });
+            },
+            .tree_view => {
+                // Show pending key or status message
+                if (self.pending_key.get()) |pending| {
+                    const pending_str = try std.fmt.allocPrint(arena, "{c}-", .{@as(u8, @intCast(pending))});
+                    _ = win.printSegment(.{
+                        .text = pending_str,
+                        .style = .{ .fg = .{ .index = 3 } }, // yellow
+                    }, .{ .row_offset = row, .col_offset = 0 });
+                } else if (self.status_message) |msg| {
+                    _ = win.printSegment(.{
+                        .text = msg,
+                        .style = .{ .fg = .{ .index = 2 } }, // green
+                    }, .{ .row_offset = row, .col_offset = 0 });
+                }
+            },
+            else => {},
+        }
+
+        // Help hint on the right
+        if (win.width > 10) {
+            const hint = "[?:help]";
+            const col: u16 = @intCast(win.width -| hint.len);
+            _ = win.printSegment(.{
+                .text = hint,
+                .style = .{ .fg = .{ .index = 8 } }, // dim
+            }, .{ .row_offset = row, .col_offset = col });
+        }
+    }
 };
+
+/// Case-insensitive substring search
+fn containsIgnoreCase(haystack: []const u8, needle: []const u8) bool {
+    if (needle.len > haystack.len) return false;
+    if (needle.len == 0) return true;
+
+    const end = haystack.len - needle.len + 1;
+    for (0..end) |i| {
+        var match = true;
+        for (0..needle.len) |j| {
+            const h = std.ascii.toLower(haystack[i + j]);
+            const n = std.ascii.toLower(needle[j]);
+            if (h != n) {
+                match = false;
+                break;
+            }
+        }
+        if (match) return true;
+    }
+    return false;
+}
+
+/// Base64 encode for OSC 52 clipboard
+fn encodeBase64(allocator: std.mem.Allocator, data: []const u8) ![]const u8 {
+    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const pad = '=';
+
+    const out_len = ((data.len + 2) / 3) * 4;
+    var result = try allocator.alloc(u8, out_len);
+
+    var i: usize = 0;
+    var j: usize = 0;
+    while (i < data.len) {
+        const b0 = data[i];
+        const b1 = if (i + 1 < data.len) data[i + 1] else 0;
+        const b2 = if (i + 2 < data.len) data[i + 2] else 0;
+
+        result[j] = alphabet[b0 >> 2];
+        result[j + 1] = alphabet[((b0 & 0x03) << 4) | (b1 >> 4)];
+        result[j + 2] = if (i + 1 < data.len) alphabet[((b1 & 0x0F) << 2) | (b2 >> 6)] else pad;
+        result[j + 3] = if (i + 2 < data.len) alphabet[b2 & 0x3F] else pad;
+
+        i += 3;
+        j += 4;
+    }
+
+    return result;
+}
 
 /// Check if content contains null bytes (indicates binary file)
 fn isBinaryContent(content: []const u8) bool {

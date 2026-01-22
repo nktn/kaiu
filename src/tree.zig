@@ -219,6 +219,28 @@ pub const FileTree = struct {
         }
         return null;
     }
+
+    /// Convert actual entries index to visible index.
+    /// Returns null if the entry at actual_index is hidden and show_hidden is false.
+    pub fn actualToVisibleIndex(self: *FileTree, actual_index: usize, show_hidden: bool) ?usize {
+        if (actual_index >= self.entries.items.len) return null;
+
+        if (show_hidden) {
+            return actual_index;
+        }
+
+        // Check if the target entry is hidden
+        if (self.entries.items[actual_index].is_hidden) return null;
+
+        // Count visible entries before this index
+        var visible_count: usize = 0;
+        for (self.entries.items[0..actual_index]) |entry| {
+            if (!entry.is_hidden) {
+                visible_count += 1;
+            }
+        }
+        return visible_count;
+    }
 };
 
 test "FileTree init and deinit" {
