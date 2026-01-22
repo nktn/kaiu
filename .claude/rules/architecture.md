@@ -83,11 +83,21 @@ src/
 
 <!-- zig-architect が判断時に追記 -->
 
-### [YYYY-MM-DD] Decision Title
-**Context**: 何が必要だったか
-**Decision**: 何を選んだか
-**Rationale**: なぜ選んだか
-**Alternatives**: 他の選択肢
+### [2026-01-22] FileTree Memory Strategy
+**Context**: FileTree のノード群にメモリ割り当て戦略が必要
+**Decision**: ArenaAllocator を使用
+**Rationale**:
+- 全ノードは FileTree と共に一括解放される
+- 個別の削除は不要（expand/collapse は children ポインタの操作のみ）
+- メモリリーク防止が容易
+**Alternatives**: GPA (より柔軟だがクリーンアップが複雑)
+
+### [2026-01-22] FileEntry Ownership
+**Context**: FileEntry の name フィールドの所有権
+**Decision**: ArenaAllocator が所有、FileEntry は参照のみ
+**Rationale**:
+- 文字列の重複を避ける
+- 一括解放で安全
 
 ---
 
