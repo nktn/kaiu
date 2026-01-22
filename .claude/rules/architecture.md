@@ -118,6 +118,29 @@ src/
 - 文字列の重複を避ける
 - 一括解放で安全
 
+### [2026-01-23] CLI Path Validation
+**Context**: CLI 引数のパス検証とチルダ展開
+**Decision**: main.zig で app.run() 呼び出し前に検証
+**Rationale**:
+- TUI 初期化前にエラーを検出してユーザーフレンドリーなメッセージを表示
+- `~` 展開は `std.posix.getenv("HOME")` を使用
+- 無効なパスは終了コード 1 で終了
+
+### [2026-01-23] Scroll Follow Cursor
+**Context**: カーソル移動時のスクロール追従
+**Decision**: moveCursor() 内で updateScrollOffset() を呼び出し
+**Rationale**:
+- render 時ではなく状態変更時に計算することで一貫性を保つ
+- vx.window() から画面サイズを取得
+
+### [2026-01-23] Status Bar Layout
+**Context**: ステータスバーの構成
+**Decision**: 2行構成 (パス + ヒント)
+**Rationale**:
+- 行1: 現在のディレクトリパス + ステータスメッセージ
+- 行2: モード別キーバインドヒント
+- 長いパスは "..." + 末尾で表示
+
 ---
 
 <!-- New decisions above this line -->

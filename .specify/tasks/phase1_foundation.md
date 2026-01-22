@@ -23,11 +23,11 @@
 
 ## Task 1.2: CLI Arguments
 
-- [ ] Parse command line arguments
-- [ ] `kaiu` (no args) opens current directory
-- [ ] `kaiu <path>` opens specified directory
-- [ ] Expand `~` to home directory
-- [ ] Show error for invalid/non-existent path
+- [x] Parse command line arguments
+- [x] `kaiu` (no args) opens current directory
+- [x] `kaiu <path>` opens specified directory
+- [x] Expand `~` to home directory
+- [x] Show error for invalid/non-existent path
 
 ---
 
@@ -63,12 +63,12 @@
 
 ## Task 1.6: Cursor Navigation
 
-- [ ] Implement `j` to move cursor down
-- [ ] Implement `k` to move cursor up
-- [ ] Implement `↓` arrow key (same as `j`)
-- [ ] Implement `↑` arrow key (same as `k`)
-- [ ] Handle edge cases (top/bottom of list)
-- [ ] Update scroll offset to follow cursor
+- [x] Implement `j` to move cursor down
+- [x] Implement `k` to move cursor up
+- [x] Implement `↓` arrow key (same as `j`)
+- [x] Implement `↑` arrow key (same as `k`)
+- [x] Handle edge cases (top/bottom of list)
+- [x] Update scroll offset to follow cursor
 
 ---
 
@@ -113,9 +113,9 @@
 
 ## Task 1.11: Status Bar
 
-- [ ] Show current directory path in header
-- [ ] Show keybinding hints in footer
-- [ ] Different hints for tree view vs preview mode
+- [x] Show current directory path in header
+- [x] Show keybinding hints in footer
+- [x] Different hints for tree view vs preview mode
 
 ---
 

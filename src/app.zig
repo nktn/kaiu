@@ -226,8 +226,8 @@ pub const App = struct {
 
         switch (key_char) {
             'q' => self.should_quit = true,
-            'j' => self.moveCursor(1),
-            'k' => self.moveCursor(-1),
+            'j', vaxis.Key.down => self.moveCursor(1),
+            'k', vaxis.Key.up => self.moveCursor(-1),
             'l', 'o', vaxis.Key.enter => try self.handleEnter(),
             'h' => self.handleBack(),
             '.' => self.toggleHidden(), // Changed from 'a' to '.'
@@ -333,6 +333,26 @@ pub const App = struct {
         } else {
             const abs_delta = @as(usize, @intCast(-delta));
             self.cursor = self.cursor -| abs_delta;
+        }
+
+        // Update scroll offset to follow cursor
+        self.updateScrollOffset();
+    }
+
+    fn updateScrollOffset(self: *Self) void {
+        // Get visible tree height (total height minus status bar area)
+        const win = self.vx.window();
+        const tree_height: usize = if (win.height > 2) win.height - 2 else win.height;
+        if (tree_height == 0) return;
+
+        // Scroll up if cursor is above visible area
+        if (self.cursor < self.scroll_offset) {
+            self.scroll_offset = self.cursor;
+        }
+
+        // Scroll down if cursor is below visible area
+        if (self.cursor >= self.scroll_offset + tree_height) {
+            self.scroll_offset = self.cursor - tree_height + 1;
         }
     }
 
@@ -471,6 +491,7 @@ pub const App = struct {
             const visible_count = ft.countVisible(self.show_hidden);
             if (visible_count > 0) {
                 self.cursor = visible_count - 1;
+                self.updateScrollOffset();
             }
         }
     }
@@ -752,13 +773,22 @@ pub const App = struct {
     fn renderStatusBar(self: *Self, win: vaxis.Window, row: u16) !void {
         const arena = self.render_arena.allocator();
 
-        // Mode indicator and input
+        // Row 1: Path and status
+        try self.renderStatusRow1(win, arena, row);
+
+        // Row 2: Keybinding hints
+        if (row + 1 < win.height) {
+            try self.renderStatusRow2(win, row + 1);
+        }
+    }
+
+    fn renderStatusRow1(self: *Self, win: vaxis.Window, arena: std.mem.Allocator, row: u16) !void {
         switch (self.mode) {
             .search => {
                 // Search mode: "/query" [N matches]
                 const match_count = self.search_matches.items.len;
                 const query = self.input_buffer.items;
-                const status = try std.fmt.allocPrint(arena, "/{s}█  [{d} matches]", .{ query, match_count });
+                const status = try std.fmt.allocPrint(arena, "/{s}|  [{d} matches]", .{ query, match_count });
                 _ = win.printSegment(.{
                     .text = status,
                     .style = .{ .reverse = true },
@@ -767,38 +797,69 @@ pub const App = struct {
             .path_input => {
                 // Path input mode: "Go to: path"
                 const path = self.input_buffer.items;
-                const status = try std.fmt.allocPrint(arena, "Go to: {s}█", .{path});
+                const status = try std.fmt.allocPrint(arena, "Go to: {s}|", .{path});
                 _ = win.printSegment(.{
                     .text = status,
                     .style = .{ .reverse = true },
                 }, .{ .row_offset = row, .col_offset = 0 });
             },
             .tree_view => {
-                // Show pending key or status message
+                // Show current directory path
+                if (self.file_tree) |ft| {
+                    const max_path_width = win.width -| 20; // Leave room for status
+                    if (ft.root_path.len > max_path_width) {
+                        // Show "..." prefix for long paths
+                        _ = win.printSegment(.{
+                            .text = "...",
+                            .style = .{ .fg = .{ .index = 8 } }, // dim
+                        }, .{ .row_offset = row, .col_offset = 0 });
+                        const suffix_start = ft.root_path.len - (max_path_width - 3);
+                        _ = win.printSegment(.{
+                            .text = ft.root_path[suffix_start..],
+                            .style = .{ .fg = .{ .index = 6 }, .bold = true }, // cyan, bold
+                        }, .{ .row_offset = row, .col_offset = 3 });
+                    } else {
+                        _ = win.printSegment(.{
+                            .text = ft.root_path,
+                            .style = .{ .fg = .{ .index = 6 }, .bold = true }, // cyan, bold
+                        }, .{ .row_offset = row, .col_offset = 0 });
+                    }
+                }
+
+                // Show pending key or status message on the right
                 if (self.pending_key.get()) |pending| {
                     const pending_str = try std.fmt.allocPrint(arena, "{c}-", .{@as(u8, @intCast(pending))});
+                    const col: u16 = @intCast(win.width -| pending_str.len -| 1);
                     _ = win.printSegment(.{
                         .text = pending_str,
                         .style = .{ .fg = .{ .index = 3 } }, // yellow
-                    }, .{ .row_offset = row, .col_offset = 0 });
+                    }, .{ .row_offset = row, .col_offset = col });
                 } else if (self.status_message) |msg| {
+                    const col: u16 = @intCast(win.width -| msg.len -| 1);
                     _ = win.printSegment(.{
                         .text = msg,
                         .style = .{ .fg = .{ .index = 2 } }, // green
-                    }, .{ .row_offset = row, .col_offset = 0 });
+                    }, .{ .row_offset = row, .col_offset = col });
                 }
             },
             else => {},
         }
+    }
 
-        // Help hint on the right
-        if (win.width > 10) {
-            const hint = "[?:help]";
-            const col: u16 = @intCast(win.width -| hint.len);
+    fn renderStatusRow2(self: *Self, win: vaxis.Window, row: u16) !void {
+        const hints = switch (self.mode) {
+            .tree_view => "j/k:move  l/Enter:open  h:back  .:hidden  /:search  ?:help  q:quit",
+            .search => "Enter:confirm  Esc:cancel  n/N:next/prev match",
+            .path_input => "Enter:go  Esc:cancel",
+            .preview => "j/k:scroll  h:close  q:quit",
+            else => "",
+        };
+
+        if (hints.len > 0) {
             _ = win.printSegment(.{
-                .text = hint,
+                .text = hints,
                 .style = .{ .fg = .{ .index = 8 } }, // dim
-            }, .{ .row_offset = row, .col_offset = col });
+            }, .{ .row_offset = row, .col_offset = 0 });
         }
     }
 };
@@ -893,4 +954,16 @@ test "isBinaryContent detects null bytes" {
 
     // Empty content is not binary
     try std.testing.expect(!isBinaryContent(""));
+}
+
+test "containsIgnoreCase" {
+    // Basic case-insensitive matching
+    try std.testing.expect(containsIgnoreCase("HelloWorld", "world"));
+    try std.testing.expect(containsIgnoreCase("HelloWorld", "HELLO"));
+    try std.testing.expect(containsIgnoreCase("test.txt", "TEST"));
+    try std.testing.expect(!containsIgnoreCase("hello", "xyz"));
+
+    // Edge cases
+    try std.testing.expect(containsIgnoreCase("a", ""));
+    try std.testing.expect(!containsIgnoreCase("", "a"));
 }

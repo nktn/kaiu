@@ -34,15 +34,7 @@ pub fn renderTree(
         visible_index += 1;
     }
 
-    // Show help at bottom if there's room
-    if (height > 2 and row < height - 1) {
-        const help_row = height - 1;
-        const help_text = "j/k:move  o/Enter:open  h:back  a:hidden  q:quit";
-        _ = win.printSegment(.{
-            .text = help_text,
-            .style = .{ .fg = .{ .index = 8 } }, // dim
-        }, .{ .row_offset = help_row, .col_offset = 0 });
-    }
+    // Status bar is now rendered separately by app.zig
 }
 
 fn renderEntry(
