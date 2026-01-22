@@ -352,8 +352,9 @@ pub const App = struct {
         }
 
         // Scroll down if cursor is below visible area
-        if (self.cursor >= self.scroll_offset + tree_height) {
-            self.scroll_offset = self.cursor - tree_height + 1;
+        // cursor should be at most scroll_offset + tree_height - 1 (last visible row)
+        if (self.cursor > self.scroll_offset + tree_height - 1) {
+            self.scroll_offset = self.cursor - (tree_height - 1);
         }
     }
 
