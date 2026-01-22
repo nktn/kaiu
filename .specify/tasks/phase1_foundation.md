@@ -2,8 +2,8 @@
 
 ## Task 1.1: Project Setup
 
-- [ ] Initialize Zig project with `zig init`
-- [ ] Add libvaxis as dependency in `build.zig.zon`:
+- [x] Initialize Zig project with `zig init`
+- [x] Add libvaxis as dependency in `build.zig.zon`:
 ```zig
   .dependencies = .{
       .vaxis = .{
@@ -12,13 +12,13 @@
       },
   },
 ```
-- [ ] `build.zig` で vaxis モジュールを追加:
+- [x] `build.zig` で vaxis モジュールを追加:
 ```zig
   const vaxis = b.dependency("vaxis", .{});
   exe.root_module.addImport("vaxis", vaxis.module("vaxis"));
 ```
-- [ ] `zig build` を実行して依存関係を取得・ビルド確認
-- [ ] Create basic project structure:
+- [x] `zig build` を実行して依存関係を取得・ビルド確認
+- [x] Create basic project structure:
 ```
   kaiu/
   ├── src/
@@ -30,77 +30,77 @@
   ├── build.zig.zon
   └── README.md
 ```
-- [ ] Verify `zig build` works
+- [x] Verify `zig build` works
 
 ---
 
 ## Task 1.2: Directory Reading
 
-- [ ] Implement `tree.zig` with FileTree struct
-- [ ] Read directory entries using `std.fs`
-- [ ] Sort entries: directories first, then files, alphabetically
-- [ ] Handle permission errors gracefully
-- [ ] Support expand/collapse state for directories
+- [x] Implement `tree.zig` with FileTree struct
+- [x] Read directory entries using `std.fs`
+- [x] Sort entries: directories first, then files, alphabetically
+- [x] Handle permission errors gracefully
+- [x] Support expand/collapse state for directories
 
 ---
 
 ## Task 1.3: Basic TUI
 
-- [ ] Initialize libvaxis terminal
-- [ ] Implement main event loop
-- [ ] Render file tree with indentation
-- [ ] Show cursor position
-- [ ] Handle `q` to quit cleanly
+- [x] Initialize libvaxis terminal
+- [x] Implement main event loop
+- [x] Render file tree with indentation
+- [x] Show cursor position
+- [x] Handle `q` to quit cleanly
 
 ---
 
 ## Task 1.4: Navigation
 
-- [ ] Implement `j` / `k` movement
-- [ ] Implement `Enter` to expand/collapse directories
-- [ ] Add visual cursor indicator (`>` or highlight)
-- [ ] Handle edge cases (empty directory, single file)
+- [x] Implement `j` / `k` movement
+- [x] Implement `Enter` to expand/collapse directories
+- [x] Add visual cursor indicator (`>` or highlight)
+- [x] Handle edge cases (empty directory, single file)
 
 ---
 
 ## Task 1.5: Hidden Files
 
-- [ ] Filter out dotfiles by default
-- [ ] Implement `a` to toggle visibility
-- [ ] Show indicator when hidden files exist but are hidden
+- [x] Filter out dotfiles by default
+- [x] Implement `a` to toggle visibility
+- [x] Show indicator when hidden files exist but are hidden
 
 ---
 
 ## Task 1.6: Split Layout
 
-- [ ] Implement two-pane layout (tree | preview)
-- [ ] Calculate pane widths dynamically
-- [ ] Handle terminal resize events
+- [x] Implement two-pane layout (tree | preview)
+- [x] Calculate pane widths dynamically
+- [x] Handle terminal resize events
 
 ---
 
 ## Task 1.7: Text Preview
 
-- [ ] Read file content on selection
-- [ ] Display with line numbers
-- [ ] Truncate large files (>1000 lines)
-- [ ] Show "[truncated]" indicator
+- [x] Read file content on selection
+- [x] Display with line numbers
+- [x] Truncate large files (>1000 lines)
+- [x] Show "[truncated]" indicator
 
 ---
 
 ## Task 1.8: Preview Navigation
 
-- [ ] `l` or `Enter` on file opens preview
-- [ ] `h` closes preview, returns focus to tree
-- [ ] Preview scrolling with `j`/`k` when focused
-- [ ] Show filename in preview header
+- [x] `l` or `Enter` on file opens preview
+- [x] `h` closes preview, returns focus to tree
+- [x] Preview scrolling with `j`/`k` when focused
+- [x] Show filename in preview header
 
 ---
 
 ## Task 1.9: File Type Handling
 
-- [ ] Detect binary files (null bytes check)
-- [ ] Show "[Binary file - X bytes]" for binary
+- [x] Detect binary files (null bytes check)
+- [x] Show "[Binary file - X bytes]" for binary
 
 ---
 

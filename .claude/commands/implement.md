@@ -15,6 +15,9 @@ $ARGUMENTS
 ## Process Overview
 
 ```
+git checkout -b feat/<name>
+   │
+   ▼
 tasks.md
    │
    ▼
@@ -44,12 +47,29 @@ zig-refactor-cleaner (クリーンアップ)
 /learn (パターン保存)
    │
    ▼
-/pr → /codex → 修正 → /pr merge
+git commit && push → /pr → /codex → 修正 → /pr merge
 ```
 
 ## Execution Steps
 
 ### 1. Setup
+
+#### 1.1 Create Feature Branch
+
+Before starting implementation, create a feature branch:
+
+```bash
+# Branch naming: feat/<feature-name> or feat/<phase-name>
+git checkout -b feat/phase1-foundation
+```
+
+This ensures:
+- Clean separation from main branch
+- Easy PR creation after completion
+- Safe rollback if needed
+- Parallel work on different features
+
+#### 1.2 Prerequisite Check
 
 Run prerequisite check:
 ```bash
@@ -236,26 +256,35 @@ Patterns learned:
 
 実装完了後のフロー:
 
-### 1. PR 作成
+### 1. Commit & Push
+```bash
+# Stage and commit changes
+git add <files>
+git commit -m "feat: <description>"
+
+# Push branch to remote
+git push -u origin feat/<feature-name>
+```
+
+### 2. PR 作成
 ```
 /pr
 ```
-- 変更をコミット
 - PR 作成（ラベル自動付与）
 
-### 2. Codex レビュー
+### 3. Codex レビュー
 ```
 /codex このPRの変更をレビューして
 ```
 - Codex CLI がコードレビュー実行
 - 結果を PR コメントに追記
 
-### 3. 修正方針決定
+### 4. 修正方針決定
 ```
 /pr comment 指摘1: 修正する、指摘2: 見送り（理由: ...）
 ```
 
-### 4. 最終修正 & マージ
+### 5. 最終修正 & マージ
 ```
 # 修正後
 /pr merge
