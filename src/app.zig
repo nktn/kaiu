@@ -562,23 +562,18 @@ pub const App = struct {
 
     fn expandAll(self: *Self) void {
         if (self.file_tree) |ft| {
-            // Expand directories iteratively (new entries may be added)
-            // Limit to prevent hanging on large directory trees
-            const max_expansions: usize = 100;
-            var expansions: usize = 0;
+            // Only expand currently visible directories (not recursively)
+            // Record current count to avoid expanding newly added dirs
+            const current_len = ft.entries.items.len;
             var i: usize = 0;
-            while (i < ft.entries.items.len and expansions < max_expansions) {
+            while (i < current_len) {
                 const entry = &ft.entries.items[i];
                 if (entry.kind == .directory and !entry.expanded) {
                     ft.toggleExpand(i) catch {
                         // Skip directories we can't access (permission denied, etc.)
                     };
-                    expansions += 1;
                 }
                 i += 1;
-            }
-            if (expansions >= max_expansions) {
-                self.status_message = "Expanded 100 dirs (limit)";
             }
         }
     }
