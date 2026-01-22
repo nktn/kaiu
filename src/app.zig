@@ -13,6 +13,7 @@ pub const AppMode = enum {
 
 pub const Event = union(enum) {
     key_press: vaxis.Key,
+    mouse: vaxis.Mouse,
     winsize: vaxis.Winsize,
 };
 
@@ -54,6 +55,7 @@ pub const App = struct {
     cursor: usize,
     scroll_offset: usize,
     show_hidden: bool,
+    last_wheel_time: i64,
     preview_content: ?[]const u8,
     preview_path: ?[]const u8,
     preview_scroll: usize,
@@ -91,6 +93,7 @@ pub const App = struct {
             .cursor = 0,
             .scroll_offset = 0,
             .show_hidden = false,
+            .last_wheel_time = 0,
             .preview_content = null,
             .preview_path = null,
             .preview_scroll = 0,
@@ -149,6 +152,10 @@ pub const App = struct {
         try self.vx.enterAltScreen(writer);
         errdefer self.vx.exitAltScreen(writer) catch {};
 
+        // Enable mouse mode for wheel events
+        try self.vx.setMouseMode(writer, true);
+        errdefer self.vx.setMouseMode(writer, false) catch {};
+
         self.vx.queueRefresh();
 
         // Start the input thread
@@ -166,6 +173,9 @@ pub const App = struct {
             switch (event) {
                 .key_press => |key| {
                     try self.handleKey(key);
+                },
+                .mouse => |mouse| {
+                    self.handleMouse(mouse);
                 },
                 .winsize => |ws| {
                     try self.vx.resize(self.allocator, writer, ws);
@@ -197,6 +207,43 @@ pub const App = struct {
             .search => try self.handleSearchKey(key, key_char),
             .path_input => try self.handlePathInputKey(key, key_char),
             .help => self.handleHelpKey(),
+        }
+    }
+
+    fn handleMouse(self: *Self, mouse: vaxis.Mouse) void {
+        // Debounce wheel events - only process first event in a batch
+        const now = std.time.milliTimestamp();
+        const wheel_debounce_ms: i64 = 50; // Ignore events within 50ms
+
+        switch (mouse.button) {
+            .wheel_up, .wheel_down => {
+                if (now - self.last_wheel_time < wheel_debounce_ms) {
+                    return; // Skip duplicate wheel events
+                }
+                self.last_wheel_time = now;
+            },
+            else => {},
+        }
+
+        // Handle mouse wheel scroll
+        switch (mouse.button) {
+            .wheel_up => {
+                switch (self.mode) {
+                    .tree_view, .search, .path_input => self.moveCursor(-1),
+                    .preview => if (self.preview_scroll > 0) {
+                        self.preview_scroll -= 1;
+                    },
+                    else => {},
+                }
+            },
+            .wheel_down => {
+                switch (self.mode) {
+                    .tree_view, .search, .path_input => self.moveCursor(1),
+                    .preview => self.preview_scroll +|= 1,
+                    else => {},
+                }
+            },
+            else => {},
         }
     }
 
