@@ -746,11 +746,12 @@ pub const App = struct {
         switch (self.mode) {
             .tree_view, .search, .path_input => {
                 // Main tree view (leave room for status bar)
-                const tree_height = if (height > 2) height - 2 else height;
+                const tree_height: u16 = if (height > 2) height - 2 else height;
+                const tree_win = win.child(.{ .height = tree_height });
                 if (self.file_tree) |ft| {
-                    try ui.renderTree(win, ft, self.cursor, self.scroll_offset, self.show_hidden);
+                    try ui.renderTree(tree_win, ft, self.cursor, self.scroll_offset, self.show_hidden);
                 } else {
-                    _ = win.printSegment(.{ .text = "No directory loaded" }, .{});
+                    _ = tree_win.printSegment(.{ .text = "No directory loaded" }, .{});
                 }
 
                 // Status bar at bottom
