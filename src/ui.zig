@@ -112,23 +112,15 @@ pub fn renderPreview(
     scroll: usize,
 ) !void {
     const height = win.height;
-    const width = win.width;
-    if (height == 0 or width == 0) return;
+    if (height == 0) return;
 
-    // Header - pad to full width for better visibility
-    var header_buf: [256]u8 = undefined;
-    const header_len = @min(filename.len, header_buf.len);
-    @memcpy(header_buf[0..header_len], filename[0..header_len]);
-    // Fill rest with spaces up to width
-    const fill_len = @min(width, header_buf.len) -| header_len;
-    @memset(header_buf[header_len..][0..fill_len], ' ');
-
+    // Header
     _ = win.printSegment(.{
-        .text = header_buf[0 .. header_len + fill_len],
+        .text = filename,
         .style = .{ .bold = true, .reverse = true },
     }, .{ .row_offset = 0, .col_offset = 0 });
 
-    // Content - render each line
+    // Content - simple approach without line numbers for now
     var lines = std.mem.splitScalar(u8, content, '\n');
     var line_num: usize = 0;
     var row: u16 = 1;
@@ -141,37 +133,12 @@ pub fn renderPreview(
 
         if (row >= height) break;
 
-        // Combine line number and content into single buffer
-        var line_buf: [512]u8 = undefined;
-
-        // Format line number (5 chars: 4 digits + space)
-        const num_written = std.fmt.bufPrint(line_buf[0..5], "{d:>4} ", .{line_num + 1}) catch {
-            @memcpy(line_buf[0..5], "???? ");
-            continue;
-        };
-        _ = num_written;
-
-        // Copy line content after line number
-        const content_max = @min(line.len, line_buf.len - 5);
-        const display_max = @min(content_max, width -| 5);
-        if (display_max > 0) {
-            @memcpy(line_buf[5..][0..display_max], line[0..display_max]);
-        }
-
-        const total_len = 5 + display_max;
-
-        // Print line number with dim style
-        _ = win.printSegment(.{
-            .text = line_buf[0..5],
-            .style = .{ .fg = .{ .index = 8 } },
-        }, .{ .row_offset = row, .col_offset = 0 });
-
-        // Print content with default style
-        if (display_max > 0) {
+        // Just print the line content directly (no line numbers)
+        const max_len = @min(line.len, win.width);
+        if (max_len > 0) {
             _ = win.printSegment(.{
-                .text = line_buf[5..total_len],
-                .style = .{},
-            }, .{ .row_offset = row, .col_offset = 5 });
+                .text = line[0..max_len],
+            }, .{ .row_offset = row, .col_offset = 0 });
         }
 
         line_num += 1;
