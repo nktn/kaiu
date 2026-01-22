@@ -133,12 +133,17 @@ pub fn renderPreview(
 
         if (row >= height) break;
 
-        // DEBUG: Use fixed string literal to test printSegment
+        // Format line number - use comptime-known size buffer
+        var num_buf: [8]u8 = [_]u8{' '} ** 8;
+        const num_str = std.fmt.bufPrint(&num_buf, "{d:>4} ", .{line_num + 1}) catch "???? ";
+
+        // Print line number
         _ = win.printSegment(.{
-            .text = "TEST:",
+            .text = num_str,
+            .style = .{ .fg = .{ .index = 8 } },
         }, .{ .row_offset = row, .col_offset = 0 });
 
-        // Print line content after TEST:
+        // Print line content
         const max_len = @min(line.len, win.width -| 5);
         if (max_len > 0) {
             _ = win.printSegment(.{
