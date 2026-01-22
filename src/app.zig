@@ -228,9 +228,9 @@ pub const App = struct {
             'q' => self.should_quit = true,
             'j', vaxis.Key.down => self.moveCursor(1),
             'k', vaxis.Key.up => self.moveCursor(-1),
-            'l', vaxis.Key.enter => try self.expandOrEnter(),
+            'l', vaxis.Key.right, vaxis.Key.enter => try self.expandOrEnter(),
             'o' => try self.togglePreview(),
-            'h' => self.handleBack(),
+            'h', vaxis.Key.left => self.handleBack(),
             '.' => self.toggleHidden(), // Changed from 'a' to '.'
             'g' => self.pending_key.set('g'), // Start multi-key sequence
             'G' => self.jumpToBottom(),
@@ -408,7 +408,34 @@ pub const App = struct {
 
         const entry = &ft.entries.items[actual_index];
         if (entry.kind == .directory and entry.expanded) {
+            // Collapse expanded directory
             ft.collapseAt(actual_index);
+        } else if (entry.depth > 0) {
+            // Move to parent directory
+            self.moveToParent(actual_index);
+        }
+    }
+
+    fn moveToParent(self: *Self, current_index: usize) void {
+        if (self.file_tree == null) return;
+        const ft = self.file_tree.?;
+
+        const current_entry = ft.entries.items[current_index];
+        const target_depth = current_entry.depth - 1;
+
+        // Search backwards for parent directory
+        var i = current_index;
+        while (i > 0) {
+            i -= 1;
+            const entry = ft.entries.items[i];
+            if (entry.kind == .directory and entry.depth == target_depth) {
+                // Found parent, convert to visible index
+                if (ft.actualToVisibleIndex(i, self.show_hidden)) |visible_index| {
+                    self.cursor = visible_index;
+                    self.updateScrollOffset();
+                }
+                return;
+            }
         }
     }
 

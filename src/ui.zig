@@ -184,6 +184,7 @@ pub fn renderHelp(win: vaxis.Window) !void {
     const nav_keys = [_][2][]const u8{
         .{ "j/k", "Move down/up" },
         .{ "h/l", "Collapse/Expand" },
+        .{ "Arrows", "Same as hjkl" },
         .{ "gg/G", "Jump top/bottom" },
         .{ "H/L", "Collapse/Expand all" },
         .{ "Tab", "Toggle expand" },

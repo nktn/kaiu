@@ -2,11 +2,11 @@
 
 ## Task 1.1: Project Setup
 
-- [ ] Initialize Zig project with `zig init`
-- [ ] Add libvaxis as dependency in `build.zig.zon`
-- [ ] Configure `build.zig` to import vaxis module
-- [ ] Verify `zig build` works
-- [ ] Create basic project structure:
+- [x] Initialize Zig project with `zig init`
+- [x] Add libvaxis as dependency in `build.zig.zon`
+- [x] Configure `build.zig` to import vaxis module
+- [x] Verify `zig build` works
+- [x] Create basic project structure:
   ```
   kaiu/
   ├── src/
@@ -33,31 +33,31 @@
 
 ## Task 1.3: Directory Reading
 
-- [ ] Implement `tree.zig` with FileTree struct
-- [ ] Read directory entries using `std.fs`
-- [ ] Sort entries: directories first, then files, alphabetically
-- [ ] Track expand/collapse state for directories
-- [ ] Detect hidden files (starting with `.`)
-- [ ] Handle permission errors gracefully
+- [x] Implement `tree.zig` with FileTree struct
+- [x] Read directory entries using `std.fs`
+- [x] Sort entries: directories first, then files, alphabetically
+- [x] Track expand/collapse state for directories
+- [x] Detect hidden files (starting with `.`)
+- [x] Handle permission errors gracefully
 
 ---
 
 ## Task 1.4: Basic TUI
 
-- [ ] Initialize libvaxis terminal
-- [ ] Implement main event loop
-- [ ] Handle terminal resize events
-- [ ] Handle `q` to quit cleanly
-- [ ] Clean up terminal on exit
+- [x] Initialize libvaxis terminal
+- [x] Implement main event loop
+- [x] Handle terminal resize events
+- [x] Handle `q` to quit cleanly
+- [x] Clean up terminal on exit
 
 ---
 
 ## Task 1.5: Tree Rendering
 
-- [ ] Render file tree with proper indentation
-- [ ] Show directories with `/` suffix or folder icon
-- [ ] Show visual cursor indicator (`>`)
-- [ ] Handle scrolling when cursor moves off screen
+- [x] Render file tree with proper indentation
+- [x] Show directories with `/` suffix or folder icon
+- [x] Show visual cursor indicator (`>`)
+- [x] Handle scrolling when cursor moves off screen
 
 ---
 
@@ -74,40 +74,42 @@
 
 ## Task 1.7: Directory Expand/Collapse
 
-- [ ] Implement `l` to expand directory
-- [ ] Implement `l` on file to open preview
-- [ ] Implement `h` to collapse expanded directory
-- [ ] Implement `h` on file to move cursor to parent directory
-- [ ] Implement `H` to collapse all directories
-- [ ] Implement `L` to expand all directories
+- [x] Implement `l` to expand directory
+- [x] Implement `l` on file to open preview
+- [x] Implement `h` to collapse expanded directory
+- [x] Implement `h` on file to move cursor to parent directory
+- [x] Implement `H` to collapse all directories
+- [x] Implement `L` to expand all directories
+- [x] Implement `→` arrow key (same as `l`)
+- [x] Implement `←` arrow key (same as `h`)
 
 ---
 
 ## Task 1.8: Hidden Files Toggle
 
-- [ ] Hide dotfiles by default
-- [ ] Implement `.` to toggle hidden files visibility
-- [ ] Preserve cursor position after toggle (clamp if needed)
+- [x] Hide dotfiles by default
+- [x] Implement `.` to toggle hidden files visibility
+- [x] Preserve cursor position after toggle (clamp if needed)
 
 ---
 
 ## Task 1.9: File Preview
 
-- [ ] Implement `o` to open full-screen preview
-- [ ] Implement `o` in preview mode to close (toggle)
-- [ ] Read and display file content with line numbers
-- [ ] Handle binary files (show "[Binary file - X bytes]")
-- [ ] Handle large files (show "[File too large]")
-- [ ] Handle access denied (show "[Access Denied]")
+- [x] Implement `o` to open full-screen preview
+- [x] Implement `o` in preview mode to close (toggle)
+- [x] Read and display file content with line numbers
+- [x] Handle binary files (show "[Binary file - X bytes]")
+- [x] Handle large files (show "[File too large]")
+- [x] Handle access denied (show "[Access Denied]")
 
 ---
 
 ## Task 1.10: Preview Navigation
 
-- [ ] Implement `j` in preview mode to scroll down
-- [ ] Implement `k` in preview mode to scroll up
-- [ ] Show filename in preview header
-- [ ] Show help hint in preview footer
+- [x] Implement `j` in preview mode to scroll down
+- [x] Implement `k` in preview mode to scroll up
+- [x] Show filename in preview header
+- [x] Show help hint in preview footer
 
 ---
 
