@@ -83,7 +83,7 @@ Phase 3: Completion
 === 実行計画 ===
 
 ■ 関連 Spec
-- specs/phase1_tree_view.md
+- specs/*.md (該当する spec を列挙)
 
 ■ タスク一覧と Agent 呼び出し
 

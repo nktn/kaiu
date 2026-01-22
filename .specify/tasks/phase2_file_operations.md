@@ -61,6 +61,7 @@
 - [ ] Implement `A` to enter new directory mode
 - [ ] Show input at bottom "New file: " / "New dir: "
 - [ ] Create file/directory on `Enter`
+- [ ] Implement `Esc` to cancel
 - [ ] Handle errors (exists, invalid name, permission)
 - [ ] Refresh tree and select new item
 

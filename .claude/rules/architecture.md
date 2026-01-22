@@ -15,12 +15,12 @@ stateDiagram-v2
     TreeView --> TreeView: Enter on dir (toggle expand)
     TreeView --> TreeView: h on expanded (collapse)
     TreeView --> TreeView: . (toggle hidden)
-    TreeView --> Preview: l/Enter on file
+    TreeView --> Preview: o (open preview)
     TreeView --> [*]: q (quit)
 
     Preview --> Preview: j (scroll down)
     Preview --> Preview: k (scroll up)
-    Preview --> TreeView: h (close)
+    Preview --> TreeView: o (close preview)
     Preview --> [*]: q (quit)
 ```
 
@@ -30,12 +30,12 @@ stateDiagram-v2
 |------|-------|-----|--------|
 | TreeView | `j` | TreeView | cursor_down() |
 | TreeView | `k` | TreeView | cursor_up() |
-| TreeView | `l`/`Enter` on dir | TreeView | toggle_expand() |
-| TreeView | `l`/`Enter` on file | Preview | open_preview() |
+| TreeView | `l` on dir | TreeView | expand() |
+| TreeView | `o` on file | Preview | open_preview() |
 | TreeView | `h` on expanded dir | TreeView | collapse() |
 | TreeView | `.` | TreeView | toggle_hidden() |
 | TreeView | `q` | Quit | cleanup() |
-| Preview | `h` | TreeView | close_preview() |
+| Preview | `o` | TreeView | close_preview() |
 | Preview | `j` | Preview | scroll_down() |
 | Preview | `k` | Preview | scroll_up() |
 | Preview | `q` | Quit | cleanup() |

@@ -93,7 +93,7 @@ Tanaka-san wants to see dotfiles sometimes, but not always cluttering the view.
 - **FR-004**: App MUST display directory tree with proper indentation
 - **FR-005**: App MUST show directories with trailing `/` or folder indicator
 - **FR-006**: App MUST support `j`/`k` for cursor movement
-- **FR-007**: App MUST support `l` to expand directory or open file preview
+- **FR-007**: App MUST support `l` to expand directory
 - **FR-008**: App MUST support `h` to collapse directory or move to parent
 - **FR-009**: App MUST support `H` to collapse all directories
 - **FR-010**: App MUST support `L` to expand all directories
@@ -120,7 +120,7 @@ Tanaka-san wants to see dotfiles sometimes, but not always cluttering the view.
 | `j` / `↓` | tree | Move cursor down |
 | `k` / `↑` | tree | Move cursor up |
 | `h` / `←` | tree | Collapse directory or move to parent |
-| `l` / `→` | tree | Expand directory or open preview |
+| `l` / `→` | tree | Expand directory |
 | `H` | tree | Collapse all directories |
 | `L` | tree | Expand all directories |
 | `o` | tree | Toggle preview |
