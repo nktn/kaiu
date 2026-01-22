@@ -2,6 +2,30 @@ const std = @import("std");
 const vaxis = @import("vaxis");
 const tree = @import("tree.zig");
 
+/// Sanitize text for safe terminal display by replacing control characters.
+/// Control chars (0x00-0x1F, 0x7F) and escape (0x1B) are replaced with '?'.
+/// Returns the original string if no sanitization needed, or an allocated copy.
+pub fn sanitizeForDisplay(allocator: std.mem.Allocator, text: []const u8) ![]const u8 {
+    // First pass: check if sanitization is needed
+    var needs_sanitization = false;
+    for (text) |c| {
+        if (c < 0x20 or c == 0x7F) {
+            needs_sanitization = true;
+            break;
+        }
+    }
+
+    if (!needs_sanitization) {
+        return text;
+    }
+
+    // Second pass: create sanitized copy
+    var result = try allocator.alloc(u8, text.len);
+    for (text, 0..) |c, i| {
+        result[i] = if (c < 0x20 or c == 0x7F) '?' else c;
+    }
+    return result;
+}
 
 pub fn renderTree(
     win: vaxis.Window,
@@ -9,6 +33,7 @@ pub fn renderTree(
     cursor: usize,
     scroll_offset: usize,
     show_hidden: bool,
+    arena: std.mem.Allocator,
 ) !void {
     const height = win.height;
     var row: u16 = 0;
@@ -28,21 +53,13 @@ pub fn renderTree(
         if (row >= height) break;
 
         const is_cursor = visible_index == cursor;
-        try renderEntry(win, entry, row, is_cursor);
+        try renderEntry(win, entry, row, is_cursor, arena);
 
         row += 1;
         visible_index += 1;
     }
 
-    // Show help at bottom if there's room
-    if (height > 2 and row < height - 1) {
-        const help_row = height - 1;
-        const help_text = "j/k:move  o/Enter:open  h:back  a:hidden  q:quit";
-        _ = win.printSegment(.{
-            .text = help_text,
-            .style = .{ .fg = .{ .index = 8 } }, // dim
-        }, .{ .row_offset = help_row, .col_offset = 0 });
-    }
+    // Status bar is now rendered separately by app.zig
 }
 
 fn renderEntry(
@@ -50,8 +67,12 @@ fn renderEntry(
     entry: tree.FileEntry,
     row: u16,
     is_cursor: bool,
+    arena: std.mem.Allocator,
 ) !void {
     var col: u16 = 0;
+
+    // Sanitize filename for safe display (prevents terminal escape injection)
+    const safe_name = try sanitizeForDisplay(arena, entry.name);
 
     // Cursor indicator
     if (is_cursor) {
@@ -74,25 +95,25 @@ fn renderEntry(
     // Icon and name
     if (entry.kind == .directory) {
         const icon = if (entry.expanded) "v " else "> ";
-        _ = win.printSegment(.{
+        const icon_result = win.printSegment(.{
             .text = icon,
             .style = .{ .fg = .{ .index = 4 } }, // blue
         }, .{ .row_offset = row, .col_offset = col });
-        col += 2;
+        col = icon_result.col;
 
-        _ = win.printSegment(.{
-            .text = entry.name,
+        const name_result = win.printSegment(.{
+            .text = safe_name,
             .style = .{ .fg = .{ .index = 4 }, .bold = true },
         }, .{ .row_offset = row, .col_offset = col });
-        col += @intCast(entry.name.len);
+        col = name_result.col;
 
         _ = win.printSegment(.{
             .text = "/",
             .style = .{ .fg = .{ .index = 4 } },
         }, .{ .row_offset = row, .col_offset = col });
     } else {
-        _ = win.printSegment(.{ .text = "  " }, .{ .row_offset = row, .col_offset = col });
-        col += 2;
+        const space_result = win.printSegment(.{ .text = "  " }, .{ .row_offset = row, .col_offset = col });
+        col = space_result.col;
 
         const style: vaxis.Style = if (entry.is_hidden)
             .{ .fg = .{ .index = 8 } } // dim for hidden
@@ -100,7 +121,7 @@ fn renderEntry(
             .{};
 
         _ = win.printSegment(.{
-            .text = entry.name,
+            .text = safe_name,
             .style = style,
         }, .{ .row_offset = row, .col_offset = col });
     }
@@ -116,9 +137,10 @@ pub fn renderPreview(
     const height = win.height;
     if (height == 0) return;
 
-    // Header
+    // Header (sanitized filename)
+    const safe_filename = try sanitizeForDisplay(arena, filename);
     _ = win.printSegment(.{
-        .text = filename,
+        .text = safe_filename,
         .style = .{ .bold = true, .reverse = true },
     }, .{ .row_offset = 0, .col_offset = 0 });
 
@@ -147,12 +169,13 @@ pub fn renderPreview(
             .style = .{ .fg = .{ .index = 8 } },
         }, .{ .row_offset = row, .col_offset = 0 });
 
-        // Print line content
+        // Print line content (sanitized)
         const col_offset: u16 = @intCast(line_num_width + 1);
         const max_len = @min(line.len, win.width -| col_offset);
         if (max_len > 0) {
+            const safe_line = try sanitizeForDisplay(arena, line[0..max_len]);
             _ = win.printSegment(.{
-                .text = line[0..max_len],
+                .text = safe_line,
             }, .{ .row_offset = row, .col_offset = col_offset });
         }
 
@@ -164,7 +187,21 @@ pub fn renderPreview(
 pub fn renderHelp(win: vaxis.Window) !void {
     const height = win.height;
     const width = win.width;
-    if (height < 10 or width < 40) return;
+    if (height < 3 or width < 20) {
+        // Window too small - show minimal hint with close instruction
+        _ = win.printSegment(.{ .text = "Help (any key)" }, .{});
+        return;
+    }
+    if (height < 10 or width < 40) {
+        // Compact help for small windows
+        _ = win.printSegment(.{
+            .text = "kaiu Help (press any key)",
+            .style = .{ .bold = true, .reverse = true },
+        }, .{ .row_offset = 0, .col_offset = 0 });
+        _ = win.printSegment(.{ .text = "j/k:move h/l:collapse/expand o:preview" }, .{ .row_offset = 1, .col_offset = 0 });
+        _ = win.printSegment(.{ .text = "/:search .:hidden ?:help q:quit" }, .{ .row_offset = 2, .col_offset = 0 });
+        return;
+    }
 
     // Center the help box
     const box_width: u16 = @min(60, width - 4);
@@ -192,6 +229,7 @@ pub fn renderHelp(win: vaxis.Window) !void {
     const nav_keys = [_][2][]const u8{
         .{ "j/k", "Move down/up" },
         .{ "h/l", "Collapse/Expand" },
+        .{ "Arrows", "Same as hjkl" },
         .{ "gg/G", "Jump top/bottom" },
         .{ "H/L", "Collapse/Expand all" },
         .{ "Tab", "Toggle expand" },

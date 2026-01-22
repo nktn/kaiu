@@ -1,6 +1,12 @@
 const std = @import("std");
 const app = @import("app.zig");
 
+/// Result of path expansion and validation.
+pub const PathResult = struct {
+    path: []const u8,
+    owned: bool,
+};
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer {
@@ -15,13 +21,117 @@ pub fn main() !void {
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
 
-    const start_path = if (args.len > 1) args[1] else ".";
+    const raw_path = if (args.len > 1) args[1] else ".";
 
-    try app.run(allocator, start_path);
+    // Expand ~ to home directory and validate path
+    const result = expandAndValidatePath(allocator, raw_path) catch |err| {
+        switch (err) {
+            error.HomeNotFound => std.debug.print("Error: Cannot resolve home directory\n", .{}),
+            error.PathNotFound => std.debug.print("Error: Path not found: {s}\n", .{raw_path}),
+            error.NotADirectory => std.debug.print("Error: Not a directory: {s}\n", .{raw_path}),
+            error.AccessDenied => std.debug.print("Error: Permission denied: {s}\n", .{raw_path}),
+            else => std.debug.print("Error: Cannot access path: {s}\n", .{raw_path}),
+        }
+        std.process.exit(1);
+    };
+    defer if (result.owned) allocator.free(result.path);
+
+    try app.run(allocator, result.path);
+}
+
+/// Expand ~ to home directory and validate path exists and is a directory.
+/// Returns PathResult with ownership flag - caller must free path if owned=true.
+pub fn expandAndValidatePath(allocator: std.mem.Allocator, path: []const u8) !PathResult {
+    var resolved_path: []const u8 = path;
+    var owned = false;
+
+    // Expand ~ to home directory
+    if (path.len > 0 and path[0] == '~') {
+        const home = std.posix.getenv("HOME") orelse return error.HomeNotFound;
+
+        if (path.len == 1) {
+            // Just "~" - return home directly (not owned, it's from env)
+            resolved_path = home;
+            owned = false;
+        } else if (path.len > 1 and path[1] == '/') {
+            // "~/something" - allocate new path
+            resolved_path = try std.fmt.allocPrint(allocator, "{s}{s}", .{ home, path[1..] });
+            owned = true;
+        } else {
+            // "~username" - not supported, treat as literal
+            resolved_path = path;
+            owned = false;
+        }
+    }
+    errdefer if (owned) allocator.free(resolved_path);
+
+    // Validate path exists and is a directory
+    const stat = std.fs.cwd().statFile(resolved_path) catch |err| {
+        return switch (err) {
+            error.FileNotFound => error.PathNotFound,
+            error.AccessDenied => error.AccessDenied,
+            else => error.PathNotFound,
+        };
+    };
+
+    if (stat.kind != .directory) {
+        return error.NotADirectory;
+    }
+
+    return .{ .path = resolved_path, .owned = owned };
 }
 
 test "main imports" {
     _ = @import("app.zig");
     _ = @import("tree.zig");
     _ = @import("ui.zig");
+}
+
+test "expandAndValidatePath with current directory" {
+    const allocator = std.testing.allocator;
+    const result = try expandAndValidatePath(allocator, ".");
+    // "." should be returned as-is (no allocation)
+    try std.testing.expectEqualStrings(".", result.path);
+    try std.testing.expect(!result.owned);
+}
+
+test "expandAndValidatePath with non-existent path" {
+    const allocator = std.testing.allocator;
+    const result = expandAndValidatePath(allocator, "/nonexistent/path/12345");
+    try std.testing.expectError(error.PathNotFound, result);
+}
+
+test "expandAndValidatePath with file instead of directory" {
+    const allocator = std.testing.allocator;
+
+    // Create a temporary file
+    var tmp_dir = std.testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    var file = try tmp_dir.dir.createFile("testfile.txt", .{});
+    file.close();
+
+    const path = try tmp_dir.dir.realpathAlloc(allocator, "testfile.txt");
+    defer allocator.free(path);
+
+    const result = expandAndValidatePath(allocator, path);
+    try std.testing.expectError(error.NotADirectory, result);
+}
+
+test "expandAndValidatePath with tilde expansion" {
+    const allocator = std.testing.allocator;
+
+    // Only test if HOME is set
+    if (std.posix.getenv("HOME")) |home| {
+        // Test "~" alone
+        const result = try expandAndValidatePath(allocator, "~");
+        try std.testing.expectEqualStrings(home, result.path);
+        try std.testing.expect(!result.owned); // HOME pointer, not owned
+
+        // Test "~/." (home directory with dot)
+        const result2 = try expandAndValidatePath(allocator, "~/.");
+        defer if (result2.owned) allocator.free(result2.path);
+        try std.testing.expect(std.mem.startsWith(u8, result2.path, home));
+        try std.testing.expect(result2.owned); // allocated, owned
+    }
 }

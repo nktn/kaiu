@@ -13,6 +13,7 @@ pub const AppMode = enum {
 
 pub const Event = union(enum) {
     key_press: vaxis.Key,
+    mouse: vaxis.Mouse,
     winsize: vaxis.Winsize,
 };
 
@@ -54,6 +55,7 @@ pub const App = struct {
     cursor: usize,
     scroll_offset: usize,
     show_hidden: bool,
+    last_wheel_time: i64,
     preview_content: ?[]const u8,
     preview_path: ?[]const u8,
     preview_scroll: usize,
@@ -91,6 +93,7 @@ pub const App = struct {
             .cursor = 0,
             .scroll_offset = 0,
             .show_hidden = false,
+            .last_wheel_time = 0,
             .preview_content = null,
             .preview_path = null,
             .preview_scroll = 0,
@@ -149,6 +152,10 @@ pub const App = struct {
         try self.vx.enterAltScreen(writer);
         errdefer self.vx.exitAltScreen(writer) catch {};
 
+        // Enable mouse mode for wheel events
+        try self.vx.setMouseMode(writer, true);
+        errdefer self.vx.setMouseMode(writer, false) catch {};
+
         self.vx.queueRefresh();
 
         // Start the input thread
@@ -166,6 +173,9 @@ pub const App = struct {
             switch (event) {
                 .key_press => |key| {
                     try self.handleKey(key);
+                },
+                .mouse => |mouse| {
+                    self.handleMouse(mouse);
                 },
                 .winsize => |ws| {
                     try self.vx.resize(self.allocator, writer, ws);
@@ -200,6 +210,43 @@ pub const App = struct {
         }
     }
 
+    fn handleMouse(self: *Self, mouse: vaxis.Mouse) void {
+        // Debounce wheel events - only process first event in a batch
+        const now = std.time.milliTimestamp();
+        const wheel_debounce_ms: i64 = 50; // Ignore events within 50ms
+
+        switch (mouse.button) {
+            .wheel_up, .wheel_down => {
+                if (now - self.last_wheel_time < wheel_debounce_ms) {
+                    return; // Skip duplicate wheel events
+                }
+                self.last_wheel_time = now;
+            },
+            else => {},
+        }
+
+        // Handle mouse wheel scroll
+        switch (mouse.button) {
+            .wheel_up => {
+                switch (self.mode) {
+                    .tree_view, .search, .path_input => self.moveCursor(-1),
+                    .preview => if (self.preview_scroll > 0) {
+                        self.preview_scroll -= 1;
+                    },
+                    else => {},
+                }
+            },
+            .wheel_down => {
+                switch (self.mode) {
+                    .tree_view, .search, .path_input => self.moveCursor(1),
+                    .preview => self.scrollPreviewDown(self.vx.window().height),
+                    else => {},
+                }
+            },
+            else => {},
+        }
+    }
+
     fn handleTreeViewKey(self: *Self, key_char: u21) !void {
         // Check for pending multi-key command
         if (self.pending_key.get()) |pending| {
@@ -226,15 +273,16 @@ pub const App = struct {
 
         switch (key_char) {
             'q' => self.should_quit = true,
-            'j' => self.moveCursor(1),
-            'k' => self.moveCursor(-1),
-            'l', 'o', vaxis.Key.enter => try self.handleEnter(),
-            'h' => self.handleBack(),
+            'j', vaxis.Key.down => self.moveCursor(1),
+            'k', vaxis.Key.up => self.moveCursor(-1),
+            'l', vaxis.Key.right, vaxis.Key.enter => try self.expandOrEnter(),
+            'o' => try self.togglePreview(),
+            'h', vaxis.Key.left => self.handleBack(),
             '.' => self.toggleHidden(), // Changed from 'a' to '.'
             'g' => self.pending_key.set('g'), // Start multi-key sequence
             'G' => self.jumpToBottom(),
             'H' => self.collapseAll(),
-            'L' => try self.expandAll(),
+            'L' => self.expandAll(),
             vaxis.Key.tab => try self.toggleCurrentDirectory(),
             '/' => self.enterSearchMode(),
             'n' => self.nextSearchMatch(),
@@ -250,8 +298,8 @@ pub const App = struct {
     fn handlePreviewKey(self: *Self, key_char: u21) void {
         switch (key_char) {
             'q' => self.should_quit = true,
-            'h' => self.closePreview(),
-            'j' => self.preview_scroll +|= 1,
+            'o', 'h' => self.closePreview(),
+            'j' => self.scrollPreviewDown(self.vx.window().height),
             'k' => if (self.preview_scroll > 0) {
                 self.preview_scroll -= 1;
             },
@@ -334,6 +382,27 @@ pub const App = struct {
             const abs_delta = @as(usize, @intCast(-delta));
             self.cursor = self.cursor -| abs_delta;
         }
+
+        // Update scroll offset to follow cursor
+        self.updateScrollOffset();
+    }
+
+    fn updateScrollOffset(self: *Self) void {
+        // Get visible tree height (total height minus status bar area)
+        const win = self.vx.window();
+        const tree_height: usize = if (win.height > 2) win.height - 2 else win.height;
+        if (tree_height == 0) return;
+
+        // Scroll up if cursor is above visible area
+        if (self.cursor < self.scroll_offset) {
+            self.scroll_offset = self.cursor;
+        }
+
+        // Scroll down if cursor is below visible area
+        // cursor should be at most scroll_offset + tree_height - 1 (last visible row)
+        if (self.cursor > self.scroll_offset + tree_height - 1) {
+            self.scroll_offset = self.cursor - (tree_height - 1);
+        }
     }
 
     fn toggleHidden(self: *Self) void {
@@ -350,7 +419,8 @@ pub const App = struct {
         }
     }
 
-    fn handleEnter(self: *Self) !void {
+    /// l/Enter: expand directory, or open preview for files
+    fn expandOrEnter(self: *Self) !void {
         if (self.file_tree == null) return;
         const ft = self.file_tree.?;
 
@@ -364,6 +434,20 @@ pub const App = struct {
         }
     }
 
+    /// o: toggle preview (open on file, close if already in preview)
+    fn togglePreview(self: *Self) !void {
+        if (self.file_tree == null) return;
+        const ft = self.file_tree.?;
+
+        const actual_index = ft.visibleToActualIndex(self.cursor, self.show_hidden) orelse return;
+
+        const entry = &ft.entries.items[actual_index];
+        if (entry.kind != .directory) {
+            try self.openPreview(entry.path);
+        }
+        // On directory, o does nothing
+    }
+
     fn handleBack(self: *Self) void {
         if (self.file_tree == null) return;
         const ft = self.file_tree.?;
@@ -372,7 +456,34 @@ pub const App = struct {
 
         const entry = &ft.entries.items[actual_index];
         if (entry.kind == .directory and entry.expanded) {
+            // Collapse expanded directory
             ft.collapseAt(actual_index);
+        } else if (entry.depth > 0) {
+            // Move to parent directory
+            self.moveToParent(actual_index);
+        }
+    }
+
+    fn moveToParent(self: *Self, current_index: usize) void {
+        if (self.file_tree == null) return;
+        const ft = self.file_tree.?;
+
+        const current_entry = ft.entries.items[current_index];
+        const target_depth = current_entry.depth - 1;
+
+        // Search backwards for parent directory
+        var i = current_index;
+        while (i > 0) {
+            i -= 1;
+            const entry = ft.entries.items[i];
+            if (entry.kind == .directory and entry.depth == target_depth) {
+                // Found parent, convert to visible index
+                if (ft.actualToVisibleIndex(i, self.show_hidden)) |visible_index| {
+                    self.cursor = visible_index;
+                    self.updateScrollOffset();
+                }
+                return;
+            }
         }
     }
 
@@ -459,6 +570,18 @@ pub const App = struct {
         self.mode = .tree_view;
     }
 
+    /// Scroll preview down by one line, clamping to content bounds
+    fn scrollPreviewDown(self: *Self, win_height: u16) void {
+        if (self.preview_content) |content| {
+            const total_lines = std.mem.count(u8, content, "\n") + 1;
+            const visible_rows: usize = if (win_height > 1) win_height - 1 else 1; // Subtract header row
+            const max_scroll = if (total_lines > visible_rows) total_lines - visible_rows else 0;
+            if (self.preview_scroll < max_scroll) {
+                self.preview_scroll += 1;
+            }
+        }
+    }
+
     // ===== Jump Commands (Task 2.2) =====
 
     fn jumpToTop(self: *Self) void {
@@ -471,6 +594,7 @@ pub const App = struct {
             const visible_count = ft.countVisible(self.show_hidden);
             if (visible_count > 0) {
                 self.cursor = visible_count - 1;
+                self.updateScrollOffset();
             }
         }
     }
@@ -496,14 +620,18 @@ pub const App = struct {
         }
     }
 
-    fn expandAll(self: *Self) !void {
+    fn expandAll(self: *Self) void {
         if (self.file_tree) |ft| {
-            // Expand directories iteratively (new entries may be added)
+            // Only expand currently visible directories (not recursively)
+            // Record current count to avoid expanding newly added dirs
+            const current_len = ft.entries.items.len;
             var i: usize = 0;
-            while (i < ft.entries.items.len) {
+            while (i < current_len) {
                 const entry = &ft.entries.items[i];
                 if (entry.kind == .directory and !entry.expanded) {
-                    try ft.toggleExpand(i);
+                    ft.toggleExpand(i) catch {
+                        // Skip directories we can't access (permission denied, etc.)
+                    };
                 }
                 i += 1;
             }
@@ -722,18 +850,24 @@ pub const App = struct {
 
         const height = win.height;
 
+        const arena = self.render_arena.allocator();
+
         switch (self.mode) {
             .tree_view, .search, .path_input => {
-                // Main tree view (leave room for status bar)
-                const tree_height = if (height > 2) height - 2 else height;
+                // Main tree view (leave room for status bar if height > 2)
+                const tree_height: u16 = if (height > 2) height - 2 else height;
+                var tree_win = win.child(.{ .height = tree_height });
+                tree_win.clear();
                 if (self.file_tree) |ft| {
-                    try ui.renderTree(win, ft, self.cursor, self.scroll_offset, self.show_hidden);
+                    try ui.renderTree(tree_win, ft, self.cursor, self.scroll_offset, self.show_hidden, arena);
                 } else {
-                    _ = win.printSegment(.{ .text = "No directory loaded" }, .{});
+                    _ = tree_win.printSegment(.{ .text = "No directory loaded" }, .{});
                 }
 
-                // Status bar at bottom
-                try self.renderStatusBar(win, tree_height);
+                // Status bar at bottom (only if we have room)
+                if (height > 2) {
+                    try self.renderStatusBar(win, tree_height, arena);
+                }
             },
             .preview => {
                 if (self.preview_content) |content| {
@@ -749,16 +883,23 @@ pub const App = struct {
         try self.vx.render(writer);
     }
 
-    fn renderStatusBar(self: *Self, win: vaxis.Window, row: u16) !void {
-        const arena = self.render_arena.allocator();
+    fn renderStatusBar(self: *Self, win: vaxis.Window, row: u16, arena: std.mem.Allocator) !void {
+        // Row 1: Path and status
+        try self.renderStatusRow1(win, arena, row);
 
-        // Mode indicator and input
+        // Row 2: Keybinding hints
+        if (row + 1 < win.height) {
+            try self.renderStatusRow2(win, row + 1);
+        }
+    }
+
+    fn renderStatusRow1(self: *Self, win: vaxis.Window, arena: std.mem.Allocator, row: u16) !void {
         switch (self.mode) {
             .search => {
                 // Search mode: "/query" [N matches]
                 const match_count = self.search_matches.items.len;
-                const query = self.input_buffer.items;
-                const status = try std.fmt.allocPrint(arena, "/{s}█  [{d} matches]", .{ query, match_count });
+                const safe_query = try ui.sanitizeForDisplay(arena, self.input_buffer.items);
+                const status = try std.fmt.allocPrint(arena, "/{s}|  [{d} matches]", .{ safe_query, match_count });
                 _ = win.printSegment(.{
                     .text = status,
                     .style = .{ .reverse = true },
@@ -766,39 +907,74 @@ pub const App = struct {
             },
             .path_input => {
                 // Path input mode: "Go to: path"
-                const path = self.input_buffer.items;
-                const status = try std.fmt.allocPrint(arena, "Go to: {s}█", .{path});
+                const safe_path = try ui.sanitizeForDisplay(arena, self.input_buffer.items);
+                const status = try std.fmt.allocPrint(arena, "Go to: {s}|", .{safe_path});
                 _ = win.printSegment(.{
                     .text = status,
                     .style = .{ .reverse = true },
                 }, .{ .row_offset = row, .col_offset = 0 });
             },
             .tree_view => {
-                // Show pending key or status message
+                // Show current directory path (sanitized)
+                if (self.file_tree) |ft| {
+                    const safe_root = try ui.sanitizeForDisplay(arena, ft.root_path);
+                    const max_path_width: usize = @as(usize, win.width) -| 20; // Leave room for status
+                    if (max_path_width <= 3) {
+                        // Window too narrow, skip path display
+                    } else if (safe_root.len > max_path_width) {
+                        // Show "..." prefix for long paths
+                        _ = win.printSegment(.{
+                            .text = "...",
+                            .style = .{ .fg = .{ .index = 8 } }, // dim
+                        }, .{ .row_offset = row, .col_offset = 0 });
+                        const suffix_start = safe_root.len - (max_path_width - 3);
+                        _ = win.printSegment(.{
+                            .text = safe_root[suffix_start..],
+                            .style = .{ .fg = .{ .index = 6 }, .bold = true }, // cyan, bold
+                        }, .{ .row_offset = row, .col_offset = 3 });
+                    } else {
+                        _ = win.printSegment(.{
+                            .text = safe_root,
+                            .style = .{ .fg = .{ .index = 6 }, .bold = true }, // cyan, bold
+                        }, .{ .row_offset = row, .col_offset = 0 });
+                    }
+                }
+
+                // Show pending key or status message on the right
                 if (self.pending_key.get()) |pending| {
                     const pending_str = try std.fmt.allocPrint(arena, "{c}-", .{@as(u8, @intCast(pending))});
+                    const col: u16 = @intCast(win.width -| pending_str.len -| 1);
                     _ = win.printSegment(.{
                         .text = pending_str,
                         .style = .{ .fg = .{ .index = 3 } }, // yellow
-                    }, .{ .row_offset = row, .col_offset = 0 });
+                    }, .{ .row_offset = row, .col_offset = col });
                 } else if (self.status_message) |msg| {
+                    const safe_msg = try ui.sanitizeForDisplay(arena, msg);
+                    const col: u16 = @intCast(win.width -| safe_msg.len -| 1);
                     _ = win.printSegment(.{
-                        .text = msg,
+                        .text = safe_msg,
                         .style = .{ .fg = .{ .index = 2 } }, // green
-                    }, .{ .row_offset = row, .col_offset = 0 });
+                    }, .{ .row_offset = row, .col_offset = col });
                 }
             },
             else => {},
         }
+    }
 
-        // Help hint on the right
-        if (win.width > 10) {
-            const hint = "[?:help]";
-            const col: u16 = @intCast(win.width -| hint.len);
+    fn renderStatusRow2(self: *Self, win: vaxis.Window, row: u16) !void {
+        const hints = switch (self.mode) {
+            .tree_view => "j/k:move  h/l:collapse/expand  o:preview  .:hidden  /:search  ?:help  q:quit",
+            .search => "Enter:confirm  Esc:cancel  n/N:next/prev",
+            .path_input => "Enter:go  Esc:cancel",
+            .preview => "j/k:scroll  o:close  q:quit",
+            else => "",
+        };
+
+        if (hints.len > 0) {
             _ = win.printSegment(.{
-                .text = hint,
+                .text = hints,
                 .style = .{ .fg = .{ .index = 8 } }, // dim
-            }, .{ .row_offset = row, .col_offset = col });
+            }, .{ .row_offset = row, .col_offset = 0 });
         }
     }
 };
@@ -893,4 +1069,16 @@ test "isBinaryContent detects null bytes" {
 
     // Empty content is not binary
     try std.testing.expect(!isBinaryContent(""));
+}
+
+test "containsIgnoreCase" {
+    // Basic case-insensitive matching
+    try std.testing.expect(containsIgnoreCase("HelloWorld", "world"));
+    try std.testing.expect(containsIgnoreCase("HelloWorld", "HELLO"));
+    try std.testing.expect(containsIgnoreCase("test.txt", "TEST"));
+    try std.testing.expect(!containsIgnoreCase("hello", "xyz"));
+
+    // Edge cases
+    try std.testing.expect(containsIgnoreCase("a", ""));
+    try std.testing.expect(!containsIgnoreCase("", "a"));
 }
