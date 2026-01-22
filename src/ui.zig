@@ -120,10 +120,13 @@ pub fn renderPreview(
         .style = .{ .bold = true, .reverse = true },
     }, .{ .row_offset = 0, .col_offset = 0 });
 
-    // Content - simple approach without line numbers for now
+    // Content with line numbers
     var lines = std.mem.splitScalar(u8, content, '\n');
     var line_num: usize = 0;
     var row: u16 = 1;
+
+    // Pre-allocated buffer for line numbers (initialized to spaces)
+    var num_buf: [5]u8 = .{ ' ', ' ', ' ', ' ', ' ' };
 
     while (lines.next()) |line| {
         if (line_num < scroll) {
@@ -133,12 +136,21 @@ pub fn renderPreview(
 
         if (row >= height) break;
 
-        // Just print the line content directly (no line numbers)
-        const max_len = @min(line.len, win.width);
+        // Format line number into pre-allocated buffer
+        _ = std.fmt.bufPrint(&num_buf, "{d:>4} ", .{line_num + 1}) catch {};
+
+        // Print line number (dim style)
+        _ = win.printSegment(.{
+            .text = &num_buf,
+            .style = .{ .fg = .{ .index = 8 } },
+        }, .{ .row_offset = row, .col_offset = 0 });
+
+        // Print line content
+        const max_len = @min(line.len, win.width -| 5);
         if (max_len > 0) {
             _ = win.printSegment(.{
                 .text = line[0..max_len],
-            }, .{ .row_offset = row, .col_offset = 0 });
+            }, .{ .row_offset = row, .col_offset = 5 });
         }
 
         line_num += 1;
