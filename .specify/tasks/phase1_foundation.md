@@ -1,25 +1,13 @@
-# Phase 1 Tasks: Foundation
+# Phase 1 Tasks: Tree View & Preview
 
 ## Task 1.1: Project Setup
 
-- [x] Initialize Zig project with `zig init`
-- [x] Add libvaxis as dependency in `build.zig.zon`:
-```zig
-  .dependencies = .{
-      .vaxis = .{
-          .url = "https://github.com/neurocyte/libvaxis/archive/refs/heads/master.tar.gz",
-          // hash は最初のビルド時にエラーで表示される
-      },
-  },
-```
-- [x] `build.zig` で vaxis モジュールを追加:
-```zig
-  const vaxis = b.dependency("vaxis", .{});
-  exe.root_module.addImport("vaxis", vaxis.module("vaxis"));
-```
-- [x] `zig build` を実行して依存関係を取得・ビルド確認
-- [x] Create basic project structure:
-```
+- [ ] Initialize Zig project with `zig init`
+- [ ] Add libvaxis as dependency in `build.zig.zon`
+- [ ] Configure `build.zig` to import vaxis module
+- [ ] Verify `zig build` works
+- [ ] Create basic project structure:
+  ```
   kaiu/
   ├── src/
   │   ├── main.zig
@@ -29,106 +17,112 @@
   ├── build.zig
   ├── build.zig.zon
   └── README.md
-```
-- [x] Verify `zig build` works
+  ```
 
 ---
 
-## Task 1.2: Directory Reading
+## Task 1.2: CLI Arguments
 
-- [x] Implement `tree.zig` with FileTree struct
-- [x] Read directory entries using `std.fs`
-- [x] Sort entries: directories first, then files, alphabetically
-- [x] Handle permission errors gracefully
-- [x] Support expand/collapse state for directories
-
----
-
-## Task 1.3: Basic TUI
-
-- [x] Initialize libvaxis terminal
-- [x] Implement main event loop
-- [x] Render file tree with indentation
-- [x] Show cursor position
-- [x] Handle `q` to quit cleanly
+- [ ] Parse command line arguments
+- [ ] `kaiu` (no args) opens current directory
+- [ ] `kaiu <path>` opens specified directory
+- [ ] Expand `~` to home directory
+- [ ] Show error for invalid/non-existent path
 
 ---
 
-## Task 1.4: Navigation
+## Task 1.3: Directory Reading
 
-- [x] Implement `j` / `k` movement
-- [x] Implement `Enter` to expand/collapse directories
-- [x] Add visual cursor indicator (`>` or highlight)
-- [x] Handle edge cases (empty directory, single file)
-
----
-
-## Task 1.5: Hidden Files
-
-- [x] Filter out dotfiles by default
-- [x] Implement `a` to toggle visibility
-- [x] Show indicator when hidden files exist but are hidden
+- [ ] Implement `tree.zig` with FileTree struct
+- [ ] Read directory entries using `std.fs`
+- [ ] Sort entries: directories first, then files, alphabetically
+- [ ] Track expand/collapse state for directories
+- [ ] Detect hidden files (starting with `.`)
+- [ ] Handle permission errors gracefully
 
 ---
 
-## Task 1.6: Split Layout
+## Task 1.4: Basic TUI
 
-- [x] Implement two-pane layout (tree | preview)
-- [x] Calculate pane widths dynamically
-- [x] Handle terminal resize events
-
----
-
-## Task 1.7: Text Preview
-
-- [x] Read file content on selection
-- [x] Display with line numbers
-- [x] Truncate large files (>1000 lines)
-- [x] Show "[truncated]" indicator
+- [ ] Initialize libvaxis terminal
+- [ ] Implement main event loop
+- [ ] Handle terminal resize events
+- [ ] Handle `q` to quit cleanly
+- [ ] Clean up terminal on exit
 
 ---
 
-## Task 1.8: Preview Navigation
+## Task 1.5: Tree Rendering
 
-- [x] `l` or `Enter` on file opens preview
-- [x] `h` closes preview, returns focus to tree
-- [x] Preview scrolling with `j`/`k` when focused
-- [x] Show filename in preview header
+- [ ] Render file tree with proper indentation
+- [ ] Show directories with `/` suffix or folder icon
+- [ ] Show visual cursor indicator (`>`)
+- [ ] Handle scrolling when cursor moves off screen
 
 ---
 
-## Task 1.9: File Type Handling
+## Task 1.6: Cursor Navigation
 
-- [x] Detect binary files (null bytes check)
-- [x] Show "[Binary file - X bytes]" for binary
+- [ ] Implement `j` to move cursor down
+- [ ] Implement `k` to move cursor up
+- [ ] Implement `↓` arrow key (same as `j`)
+- [ ] Implement `↑` arrow key (same as `k`)
+- [ ] Handle edge cases (top/bottom of list)
+- [ ] Update scroll offset to follow cursor
+
+---
+
+## Task 1.7: Directory Expand/Collapse
+
+- [ ] Implement `l` to expand directory
+- [ ] Implement `l` on file to open preview
+- [ ] Implement `h` to collapse expanded directory
+- [ ] Implement `h` on file to move cursor to parent directory
+- [ ] Implement `H` to collapse all directories
+- [ ] Implement `L` to expand all directories
+
+---
+
+## Task 1.8: Hidden Files Toggle
+
+- [ ] Hide dotfiles by default
+- [ ] Implement `.` to toggle hidden files visibility
+- [ ] Preserve cursor position after toggle (clamp if needed)
+
+---
+
+## Task 1.9: File Preview
+
+- [ ] Implement `o` to open full-screen preview
+- [ ] Implement `o` in preview mode to close (toggle)
+- [ ] Read and display file content with line numbers
+- [ ] Handle binary files (show "[Binary file - X bytes]")
+- [ ] Handle large files (show "[File too large]")
+- [ ] Handle access denied (show "[Access Denied]")
+
+---
+
+## Task 1.10: Preview Navigation
+
+- [ ] Implement `j` in preview mode to scroll down
+- [ ] Implement `k` in preview mode to scroll up
+- [ ] Show filename in preview header
+- [ ] Show help hint in preview footer
+
+---
+
+## Task 1.11: Status Bar
+
+- [ ] Show current directory path in header
+- [ ] Show keybinding hints in footer
+- [ ] Different hints for tree view vs preview mode
 
 ---
 
 ## Definition of Done
 
 Each task is complete when:
-1. Feature works as described
+1. Feature works as described in spec
 2. No crashes on edge cases
 3. Code compiles without warnings
-4. Tested manually on Ghostty
-```
-
----
-
-## 4. README.md（変更なし）
-
-先ほどの内容そのままで OK。
-
----
-
-## Claude Code での構造
-```
-kaiu/
-├── README.md
-├── .specify/
-│   ├── memory/
-│   │   └── constitution.md
-│   ├── specs/
-│   │   └── phase1_tree_view.md
-│   └── tasks/
-│       └── phase1_foundation.md
+4. Tested manually on terminal

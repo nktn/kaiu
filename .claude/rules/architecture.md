@@ -14,7 +14,7 @@ stateDiagram-v2
     TreeView --> TreeView: k (cursor up)
     TreeView --> TreeView: Enter on dir (toggle expand)
     TreeView --> TreeView: h on expanded (collapse)
-    TreeView --> TreeView: a (toggle hidden)
+    TreeView --> TreeView: . (toggle hidden)
     TreeView --> Preview: l/Enter on file
     TreeView --> [*]: q (quit)
 
@@ -33,7 +33,7 @@ stateDiagram-v2
 | TreeView | `l`/`Enter` on dir | TreeView | toggle_expand() |
 | TreeView | `l`/`Enter` on file | Preview | open_preview() |
 | TreeView | `h` on expanded dir | TreeView | collapse() |
-| TreeView | `a` | TreeView | toggle_hidden() |
+| TreeView | `.` | TreeView | toggle_hidden() |
 | TreeView | `q` | Quit | cleanup() |
 | Preview | `h` | TreeView | close_preview() |
 | Preview | `j` | Preview | scroll_down() |
@@ -44,8 +44,11 @@ stateDiagram-v2
 
 ```zig
 pub const AppMode = enum {
-    tree_view,
-    preview,
+    tree_view,   // Main mode - file tree navigation
+    preview,     // Full-screen file preview
+    search,      // Phase 2: Search mode
+    path_input,  // Phase 2: Go to path mode
+    help,        // Phase 2: Help overlay
 };
 ```
 
