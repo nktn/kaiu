@@ -36,7 +36,7 @@ pub fn renderTree(
     // Show help at bottom if there's room
     if (height > 2 and row < height - 1) {
         const help_row = height - 1;
-        const help_text = "j/k:move  Enter:open  h:back  a:hidden  q:quit";
+        const help_text = "j/k:move  o/Enter:open  h:back  a:hidden  q:quit";
         _ = win.printSegment(.{
             .text = help_text,
             .style = .{ .fg = .{ .index = 8 } }, // dim

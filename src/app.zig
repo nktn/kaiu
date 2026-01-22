@@ -129,7 +129,7 @@ pub const App = struct {
                     'q' => self.should_quit = true,
                     'j' => self.moveCursor(1),
                     'k' => self.moveCursor(-1),
-                    'l', vaxis.Key.enter => try self.handleEnter(),
+                    'l', 'o', vaxis.Key.enter => try self.handleEnter(),
                     'h' => self.handleBack(),
                     'a' => self.toggleHidden(),
                     else => {},
@@ -297,39 +297,10 @@ pub const App = struct {
                 }
             },
             .preview => {
-                // Split layout: tree on left, preview on right
-                const total_width = win.width;
-                const tree_width = total_width / 3;
-                const preview_width = total_width -| tree_width -| 1; // -1 for separator
-
-                // Left pane: tree
-                const tree_win = win.child(.{
-                    .width = tree_width,
-                    .height = win.height,
-                });
-                if (self.file_tree) |ft| {
-                    try ui.renderTree(tree_win, ft, self.cursor, self.scroll_offset, self.show_hidden);
-                }
-
-                // Separator
-                const sep_col: u16 = tree_width;
-                var row: u16 = 0;
-                while (row < win.height) : (row += 1) {
-                    _ = win.printSegment(.{
-                        .text = "│",
-                        .style = .{ .fg = .{ .index = 8 } },
-                    }, .{ .row_offset = row, .col_offset = sep_col });
-                }
-
-                // Right pane: preview
-                const preview_win = win.child(.{
-                    .x_off = @intCast(tree_width + 1),
-                    .width = preview_width,
-                    .height = win.height,
-                });
+                // Full screen preview (simpler, avoids child window issues)
                 if (self.preview_content) |content| {
                     const filename = if (self.preview_path) |p| std.fs.path.basename(p) else "preview";
-                    try ui.renderPreview(preview_win, content, filename, self.preview_scroll);
+                    try ui.renderPreview(win, content, filename, self.preview_scroll);
                 }
             },
         }
