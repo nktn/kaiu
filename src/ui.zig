@@ -66,25 +66,25 @@ fn renderEntry(
     // Icon and name
     if (entry.kind == .directory) {
         const icon = if (entry.expanded) "v " else "> ";
-        _ = win.printSegment(.{
+        const icon_width = win.printSegment(.{
             .text = icon,
             .style = .{ .fg = .{ .index = 4 } }, // blue
         }, .{ .row_offset = row, .col_offset = col });
-        col += 2;
+        col += icon_width.col;
 
-        _ = win.printSegment(.{
+        const name_width = win.printSegment(.{
             .text = entry.name,
             .style = .{ .fg = .{ .index = 4 }, .bold = true },
         }, .{ .row_offset = row, .col_offset = col });
-        col += @intCast(entry.name.len);
+        col += name_width.col;
 
         _ = win.printSegment(.{
             .text = "/",
             .style = .{ .fg = .{ .index = 4 } },
         }, .{ .row_offset = row, .col_offset = col });
     } else {
-        _ = win.printSegment(.{ .text = "  " }, .{ .row_offset = row, .col_offset = col });
-        col += 2;
+        const space_width = win.printSegment(.{ .text = "  " }, .{ .row_offset = row, .col_offset = col });
+        col += space_width.col;
 
         const style: vaxis.Style = if (entry.is_hidden)
             .{ .fg = .{ .index = 8 } } // dim for hidden
