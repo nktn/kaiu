@@ -125,10 +125,7 @@ pub fn renderPreview(
     var line_num: usize = 0;
     var row: u16 = 1;
 
-    // Pre-allocated buffer for line numbers (initialized to spaces)
-    var num_buf: [5]u8 = .{ ' ', ' ', ' ', ' ', ' ' };
-
-    while (lines.next()) |_| {
+    while (lines.next()) |line| {
         if (line_num < scroll) {
             line_num += 1;
             continue;
@@ -136,14 +133,18 @@ pub fn renderPreview(
 
         if (row >= height) break;
 
-        // Format line number into pre-allocated buffer
-        _ = std.fmt.bufPrint(&num_buf, "{d:>4} ", .{line_num + 1}) catch {};
-
-        // DEBUG: Print ONLY line number, no content
+        // DEBUG: Use fixed string literal to test printSegment
         _ = win.printSegment(.{
-            .text = &num_buf,
-            .style = .{ .fg = .{ .index = 8 } },
+            .text = "TEST:",
         }, .{ .row_offset = row, .col_offset = 0 });
+
+        // Print line content after TEST:
+        const max_len = @min(line.len, win.width -| 5);
+        if (max_len > 0) {
+            _ = win.printSegment(.{
+                .text = line[0..max_len],
+            }, .{ .row_offset = row, .col_offset = 5 });
+        }
 
         line_num += 1;
         row += 1;
