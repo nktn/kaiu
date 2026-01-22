@@ -794,7 +794,8 @@ pub const App = struct {
             .tree_view, .search, .path_input => {
                 // Main tree view (leave room for status bar)
                 const tree_height: u16 = if (height > 2) height - 2 else height;
-                const tree_win = win.child(.{ .height = tree_height });
+                var tree_win = win.child(.{ .height = tree_height });
+                tree_win.clear();
                 if (self.file_tree) |ft| {
                     try ui.renderTree(tree_win, ft, self.cursor, self.scroll_offset, self.show_hidden);
                 } else {
