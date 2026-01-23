@@ -206,16 +206,15 @@ tasks.md 完成 (計画フェーズ終了)
 │   ▼                                                     │
 │ Phase 3: Completion                                     │
 │   ├── zig-refactor-cleaner (クリーンアップ)             │
-│   ├── speckit-impl-verifier (最終検証)                  │
-│   └── /learn (パターン保存)                             │
+│   └── speckit-impl-verifier (最終検証)                  │
 │                                                         │
 └─────────────────────────────────────────────────────────┘
     │
-    ▼
-   /pr
+    ▼ [検証 PASS]
+  /learn (パターン保存)
     │
     ▼
-  /codex (レビュー)
+   /pr → /codex
 ```
 
 ### 設計判断の記録
