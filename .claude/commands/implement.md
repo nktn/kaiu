@@ -181,10 +181,22 @@ Task(subagent_type: "zig-refactor-cleaner", prompt: "
 - [ ] architecture.md に設計判断が記録されている
 - [ ] `zig build` 成功
 - [ ] `zig build test` 成功
+- [ ] `/speckit.impl-verify` で実装検証 PASS
 
 ---
 
 ## Post-Implementation
+
+### 1. 実装検証 (RECOMMENDED)
+
+```
+/speckit.impl-verify
+```
+
+spec.md の要件が実装されているか最終確認。
+ギャップがあれば追加タスクを提案。
+
+### 2. コミット & PR
 
 ```bash
 git add <files>

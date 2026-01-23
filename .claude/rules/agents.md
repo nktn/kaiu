@@ -184,7 +184,7 @@ tasks.md 完成 (計画フェーズ終了)
 ### 実装フェーズ (別セッション/別タイミング)
 
 ```
-/speckit.implement
+/implement
     │
     ▼
 orchestrator
