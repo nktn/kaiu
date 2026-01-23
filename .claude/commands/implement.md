@@ -196,7 +196,17 @@ Task(subagent_type: "zig-refactor-cleaner", prompt: "
 spec.md の要件が実装されているか最終確認。
 ギャップがあれば追加タスクを提案。
 
-### 2. コミット & PR
+### 2. ドキュメント更新 & パターン学習
+
+```
+Task(subagent_type: "doc-updater", prompt: "
+実装完了後の処理:
+1. ドキュメント更新 (README.md, architecture.md, CLAUDE.md)
+2. セッションからパターン抽出・保存
+")
+```
+
+### 3. コミット & PR
 
 ```bash
 git add <files>

@@ -15,6 +15,7 @@ Agent の使い分けと実行戦略。
 | `zig-refactor-cleaner` | 未使用コード削除・クリーンアップ | 全タスク完了後 |
 | `speckit-task-verifier` | Task カバレッジ検証 | `/speckit.tasks` 後、実装前 |
 | `speckit-impl-verifier` | 実装検証・ギャップ検出 | Phase 完了後、全タスク完了後 |
+| `doc-updater` | ドキュメント同期・パターン学習 | 実装検証 PASS 後 |
 
 ## Available Skills
 
@@ -39,6 +40,7 @@ Agent の使い分けと実行戦略。
 | `/speckit.tasks` 後、実装前 | `speckit-task-verifier` |
 | Phase 完了後 | `speckit-impl-verifier` (部分検証) |
 | 全タスク完了後 | `zig-refactor-cleaner` → `speckit-impl-verifier` |
+| 実装検証 PASS 後 | `doc-updater` (ドキュメント更新 + パターン学習) |
 | PR 後のレビュー | `codex` (skill) |
 
 ### zig-architect Triggers
@@ -121,6 +123,28 @@ Agent の使い分けと実行戦略。
 - テストカバレッジ分析
 
 **出力**: Implementation Status Matrix、Missing List、追加タスク提案
+
+### doc-updater Triggers
+
+実装検証 PASS 後に実行:
+
+```
+- ドキュメント更新 (README.md, architecture.md, CLAUDE.md)
+- セッションからのパターン抽出・保存
+```
+
+**ドキュメント更新対象**:
+- キーバインド追加/変更 → README.md, architecture.md
+- InputMode 追加/変更 → architecture.md 状態遷移図
+- 新機能追加 → README.md, CLAUDE.md
+
+**パターン学習対象**:
+- 非自明なエラー解決
+- libvaxis 使用パターン
+- build.zig パターン
+- メモリ管理戦略
+
+**出力**: 更新レポート、`.claude/skills/learned/` にパターン保存
 
 ## Execution Strategy
 
@@ -211,7 +235,7 @@ tasks.md 完成 (計画フェーズ終了)
 └─────────────────────────────────────────────────────────┘
     │
     ▼ [検証 PASS]
-  /learn (パターン保存)
+  doc-updater (ドキュメント更新 + パターン学習)
     │
     ▼
    /pr → /codex
