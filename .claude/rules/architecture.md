@@ -123,7 +123,7 @@ pub const FileTree = struct {
     entries: std.ArrayList(FileEntry),
 
     // Operations
-    pub fn init(allocator: Allocator, path: []const u8) !*FileTree
+    pub fn init(allocator: std.mem.Allocator, path: []const u8) !*FileTree
     pub fn deinit(self: *FileTree) void
     pub fn readDirectory(self: *FileTree) !void
     pub fn toggleExpand(self: *FileTree, index: usize) !void
@@ -151,7 +151,7 @@ pub const FileEntry = struct {
     children: ?std.ArrayList(FileEntry), // 子エントリのリスト
     depth: usize,                        // インデント深さ
 
-    pub fn deinit(self: *FileEntry, allocator: Allocator) void
+    pub fn deinit(self: *FileEntry, allocator: std.mem.Allocator) void
     pub fn isDir(self: FileEntry) bool
 };
 ```
