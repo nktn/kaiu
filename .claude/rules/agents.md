@@ -187,44 +187,30 @@ tasks.md 完成 (計画フェーズ終了)
 /implement
     │
     ▼
-orchestrator
+┌─────────────────────────────────────────────────────────┐
+│ orchestrator                                            │
+│                                                         │
+│ Phase 1: Planning                                       │
+│   └── タスク分析 → ユーザー承認待ち                       │
+│                                                         │
+│ Phase 2: Execution (承認後)                             │
+│   ├── Task A ──→ zig-architect → zig-tdd               │
+│   │                  │                                  │
+│   │                  └── [エラー] → zig-build-resolver  │
+│   │                                                     │
+│   ├── Task B ──→ zig-tdd (並行可能なら)                 │
+│   │                                                     │
+│   ├── Phase完了 ──→ speckit-impl-verifier (部分検証)   │
+│   │                      │                              │
+│   │                      └── [GAP] → 追加タスク         │
+│   ▼                                                     │
+│ Phase 3: Completion                                     │
+│   ├── zig-refactor-cleaner (クリーンアップ)             │
+│   └── speckit-impl-verifier (最終検証)                  │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
     │
-    ├── タスク分析
-    │
-    ├── Task A ──→ zig-architect (設計判断)
-    │                   │
-    │                   ▼
-    │              architecture.md 更新
-    │                   │
-    │                   ▼
-    │              zig-tdd (実装)
-    │                   │
-    │                   ├── [エラー] → zig-build-resolver
-    │                   │
-    │                   ▼
-    │              完了
-    │
-    ├── Task B ──→ zig-tdd (並行)
-    │
-    ├── Phase 3 (US1) 完了 ──→ speckit-impl-verifier (部分検証)
-    │                              │
-    │                              ├── [GAP] → 追加タスク
-    │                              │
-    │                              ▼ [PASS]
-    ├── Phase 4 (US2) 完了 ──→ speckit-impl-verifier (部分検証)
-    │
-    ▼
-   全タスク完了
-    │
-    ▼
-  zig-refactor-cleaner (クリーンアップ)
-    │
-    ▼
-  /speckit.impl-verify (最終検証)
-    │
-    ├── [GAP あり] → 追加タスク → 再実装
-    │
-    ▼ [PASS]
+    ▼ [検証 PASS]
   /learn (パターン保存)
     │
     ▼
