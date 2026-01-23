@@ -33,6 +33,7 @@ pub fn renderTree(
     cursor: usize,
     scroll_offset: usize,
     show_hidden: bool,
+    search_query: ?[]const u8,
     arena: std.mem.Allocator,
 ) !void {
     const height = win.height;
@@ -53,7 +54,7 @@ pub fn renderTree(
         if (row >= height) break;
 
         const is_cursor = visible_index == cursor;
-        try renderEntry(win, entry, row, is_cursor, arena);
+        try renderEntry(win, entry, row, is_cursor, search_query, arena);
 
         row += 1;
         visible_index += 1;
@@ -67,6 +68,7 @@ fn renderEntry(
     entry: tree.FileEntry,
     row: u16,
     is_cursor: bool,
+    search_query: ?[]const u8,
     arena: std.mem.Allocator,
 ) !void {
     var col: u16 = 0;
@@ -101,11 +103,8 @@ fn renderEntry(
         }, .{ .row_offset = row, .col_offset = col });
         col = icon_result.col;
 
-        const name_result = win.printSegment(.{
-            .text = safe_name,
-            .style = .{ .fg = .{ .index = 4 }, .bold = true },
-        }, .{ .row_offset = row, .col_offset = col });
-        col = name_result.col;
+        // Render directory name with search highlight
+        col = try renderNameWithHighlight(win, safe_name, row, col, search_query, .{ .fg = .{ .index = 4 }, .bold = true }, arena);
 
         _ = win.printSegment(.{
             .text = "/",
@@ -120,11 +119,93 @@ fn renderEntry(
         else
             .{};
 
-        _ = win.printSegment(.{
-            .text = safe_name,
-            .style = style,
-        }, .{ .row_offset = row, .col_offset = col });
+        // Render file name with search highlight
+        _ = try renderNameWithHighlight(win, safe_name, row, col, search_query, style, arena);
     }
+}
+
+/// Find case-insensitive match position in haystack
+fn findMatchPosition(haystack: []const u8, needle: []const u8) ?usize {
+    if (needle.len == 0 or needle.len > haystack.len) return null;
+
+    const end = haystack.len - needle.len + 1;
+    for (0..end) |i| {
+        var match = true;
+        for (0..needle.len) |j| {
+            const h = std.ascii.toLower(haystack[i + j]);
+            const n = std.ascii.toLower(needle[j]);
+            if (h != n) {
+                match = false;
+                break;
+            }
+        }
+        if (match) return i;
+    }
+    return null;
+}
+
+/// Render filename with search match highlighted
+fn renderNameWithHighlight(
+    win: vaxis.Window,
+    name: []const u8,
+    row: u16,
+    start_col: u16,
+    search_query: ?[]const u8,
+    base_style: vaxis.Style,
+    arena: std.mem.Allocator,
+) !u16 {
+    _ = arena;
+    var col = start_col;
+
+    // If no search query or no match, render normally
+    const query = search_query orelse {
+        const result = win.printSegment(.{
+            .text = name,
+            .style = base_style,
+        }, .{ .row_offset = row, .col_offset = col });
+        return result.col;
+    };
+
+    const match_pos = findMatchPosition(name, query) orelse {
+        const result = win.printSegment(.{
+            .text = name,
+            .style = base_style,
+        }, .{ .row_offset = row, .col_offset = col });
+        return result.col;
+    };
+
+    // Render: before match + highlighted match + after match
+    if (match_pos > 0) {
+        const result = win.printSegment(.{
+            .text = name[0..match_pos],
+            .style = base_style,
+        }, .{ .row_offset = row, .col_offset = col });
+        col = result.col;
+    }
+
+    // Highlight style: yellow background with black text
+    const highlight_style = vaxis.Style{
+        .fg = .{ .index = 0 }, // black
+        .bg = .{ .index = 3 }, // yellow
+        .bold = true,
+    };
+    const match_end = match_pos + query.len;
+    const result = win.printSegment(.{
+        .text = name[match_pos..match_end],
+        .style = highlight_style,
+    }, .{ .row_offset = row, .col_offset = col });
+    col = result.col;
+
+    // After match
+    if (match_end < name.len) {
+        const after_result = win.printSegment(.{
+            .text = name[match_end..],
+            .style = base_style,
+        }, .{ .row_offset = row, .col_offset = col });
+        return after_result.col;
+    }
+
+    return col;
 }
 
 pub fn renderPreview(
@@ -259,6 +340,7 @@ pub fn renderHelp(win: vaxis.Window) !void {
     const search_keys = [_][2][]const u8{
         .{ "/", "Search" },
         .{ "n/N", "Next/Prev match" },
+        .{ "Esc", "Clear search" },
     };
 
     for (search_keys) |kv| {

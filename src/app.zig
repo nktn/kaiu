@@ -272,6 +272,12 @@ pub const App = struct {
         }
 
         switch (key_char) {
+            vaxis.Key.escape => {
+                // Clear search if active
+                if (self.search_matches.items.len > 0) {
+                    self.clearSearch();
+                }
+            },
             'q' => self.should_quit = true,
             'j', vaxis.Key.down => self.moveCursor(1),
             'k', vaxis.Key.up => self.moveCursor(-1),
@@ -859,7 +865,12 @@ pub const App = struct {
                 var tree_win = win.child(.{ .height = tree_height });
                 tree_win.clear();
                 if (self.file_tree) |ft| {
-                    try ui.renderTree(tree_win, ft, self.cursor, self.scroll_offset, self.show_hidden, arena);
+                    // Pass search query for highlighting if search is active
+                    const search_query: ?[]const u8 = if (self.search_matches.items.len > 0)
+                        self.input_buffer.items
+                    else
+                        null;
+                    try ui.renderTree(tree_win, ft, self.cursor, self.scroll_offset, self.show_hidden, search_query, arena);
                 } else {
                     _ = tree_win.printSegment(.{ .text = "No directory loaded" }, .{});
                 }
@@ -940,13 +951,26 @@ pub const App = struct {
                     }
                 }
 
-                // Show pending key or status message on the right
+                // Show pending key, search status, or status message on the right
                 if (self.pending_key.get()) |pending| {
                     const pending_str = try std.fmt.allocPrint(arena, "{c}-", .{@as(u8, @intCast(pending))});
                     const col: u16 = @intCast(win.width -| pending_str.len -| 1);
                     _ = win.printSegment(.{
                         .text = pending_str,
                         .style = .{ .fg = .{ .index = 3 } }, // yellow
+                    }, .{ .row_offset = row, .col_offset = col });
+                } else if (self.search_matches.items.len > 0) {
+                    // Show active search query and match count
+                    const safe_query = try ui.sanitizeForDisplay(arena, self.input_buffer.items);
+                    const search_status = try std.fmt.allocPrint(arena, "/{s} [{d}/{d}]", .{
+                        safe_query,
+                        self.current_match + 1,
+                        self.search_matches.items.len,
+                    });
+                    const col: u16 = @intCast(win.width -| search_status.len -| 1);
+                    _ = win.printSegment(.{
+                        .text = search_status,
+                        .style = .{ .fg = .{ .index = 3 }, .bold = true }, // yellow, bold
                     }, .{ .row_offset = row, .col_offset = col });
                 } else if (self.status_message) |msg| {
                     const safe_msg = try ui.sanitizeForDisplay(arena, msg);
@@ -962,9 +986,12 @@ pub const App = struct {
     }
 
     fn renderStatusRow2(self: *Self, win: vaxis.Window, row: u16) !void {
-        const hints = switch (self.mode) {
-            .tree_view => "j/k:move  h/l:collapse/expand  o:preview  .:hidden  /:search  ?:help  q:quit",
-            .search => "Enter:confirm  Esc:cancel  n/N:next/prev",
+        const hints: []const u8 = switch (self.mode) {
+            .tree_view => if (self.search_matches.items.len > 0)
+                "n/N:next/prev  Esc:clear search  /:new search  ?:help  q:quit"
+            else
+                "j/k:move  h/l:collapse/expand  o:preview  .:hidden  /:search  ?:help  q:quit",
+            .search => "Enter:confirm  Esc:cancel",
             .path_input => "Enter:go  Esc:cancel",
             .preview => "j/k:scroll  o:close  q:quit",
             else => "",
