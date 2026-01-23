@@ -22,6 +22,7 @@ model: sonnet
 |----------|------|
 | `README.md` | プロジェクト概要、インストール、キーバインド表 |
 | `.claude/rules/architecture.md` | 状態遷移図、AppMode 詳細 |
+| `.claude/rules/workflow.md` | 計画〜実装の全体フロー、Agent/コマンド一覧 |
 
 ## 更新トリガー
 
@@ -31,6 +32,7 @@ model: sonnet
 - **AppMode 追加/変更** → architecture.md 状態遷移図
 - **新機能追加** → README.md
 - **状態遷移変更** → architecture.md
+- **Agent/コマンド追加/変更** → workflow.md
 
 ## ワークフロー
 
