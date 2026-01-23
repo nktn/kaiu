@@ -21,26 +21,26 @@ tasks.md が spec.md の全要件をカバーしているか検証する。
 
 ### Step 1: Load Artifacts
 
-**重要: 現在の feature ブランチに対応するファイルのみを読み込む**
+**重要: check-prerequisites.sh を使用して spec/tasks を特定する**
 
-```
-1. 現在のブランチ名から feature を特定:
-   - ブランチ名パターン: N-short-name (例: 3-search-feature)
-   - speckit スクリプトがこのパターンを期待
+```bash
+# check-prerequisites.sh を実行して FEATURE_DIR を取得
+.specify/scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks
 
-2. 対応する spec/tasks ファイルを読み込み:
-   - .specify/specs/<feature-name>.md (仕様)
-   - .specify/tasks/<feature-name>.md (タスクリスト)
-   - ファイル名はブランチ名から推測 (short-name 部分と照合)
-
-3. フォールバック (一致するファイルがない場合):
-   - .specify/specs/*.md と .specify/tasks/*.md を一覧表示
-   - ユーザーに対象ファイルを確認
-
-4. .specify/memory/constitution.md を読み込み (原則)
+# 出力例:
+# {"FEATURE_DIR":"/path/to/.specify/specs/001-feature","AVAILABLE_DOCS":["spec.md","tasks.md"]}
 ```
 
-**注意**: 複数 feature が存在する場合は、明示的にファイルを指定してもらう。
+```
+2. FEATURE_DIR 配下のファイルを読み込み:
+   - $FEATURE_DIR/spec.md (仕様)
+   - $FEATURE_DIR/tasks.md (タスクリスト)
+   - AVAILABLE_DOCS に含まれるファイルを使用
+
+3. .specify/memory/constitution.md を読み込み (原則)
+```
+
+**注意**: ブランチ名は `NNN-feature-name` パターン (例: `001-search-feature`) である必要がある。
 
 ### Step 2: Extract Requirements
 

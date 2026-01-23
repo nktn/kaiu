@@ -20,7 +20,7 @@ $ARGUMENTS
 │  orchestrator (タスク管理 Agent)                             │
 │                                                             │
 │  Phase 1: Planning                                          │
-│  ├── .specify/specs/<feature>.md 確認                        │
+│  ├── check-prerequisites.sh → FEATURE_DIR/spec.md 確認       │
 │  ├── 計画出力（各タスクの Agent 呼び出しを明示）               │
 │  └── ユーザー承認待ち ← **承認までコードを書かない**           │
 │                                                             │
@@ -50,8 +50,8 @@ $ARGUMENTS
 ```bash
 # 現在のブランチを確認
 git branch --show-current
-# 期待されるパターン: N-short-name (例: 3-search-feature)
-# speckit スクリプトがこのパターンを期待
+# 期待されるパターン: NNN-feature-name (例: 001-search-feature)
+# speckit スクリプトがこのパターンを期待 (3桁の数字プレフィックス)
 ```
 
 **注意**: `/implement` は独自にブランチを作成しない。
@@ -69,8 +69,8 @@ Task(subagent_type: "orchestrator", prompt: "
 現在の feature ブランチに対応するタスクを実行してください。
 
 Phase 1: Planning
-1. ブランチ名から対応する spec/tasks ファイルを特定
-2. .specify/specs/<feature>.md と .specify/tasks/<feature>.md を確認
+1. check-prerequisites.sh --json --require-tasks --include-tasks を実行
+2. FEATURE_DIR から spec.md と tasks.md を読み込み
 3. 実行計画を出力（各タスクで呼び出す Agent を明示）
 4. ユーザー承認を待つ（承認までコードを書かない）
 
@@ -94,7 +94,7 @@ Phase 3: Completion
 === 実行計画 ===
 
 ■ 関連 Spec
-- .specify/specs/<feature>.md (対象の spec ファイル)
+- $FEATURE_DIR/spec.md (check-prerequisites.sh で取得)
 
 ■ タスク一覧と Agent 呼び出し
 

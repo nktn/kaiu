@@ -21,26 +21,26 @@ model: opus
 
 ### Step 1: Load Artifacts
 
-**重要: 現在の feature ブランチに対応するファイルのみを読み込む**
+**重要: check-prerequisites.sh を使用して spec を特定する**
 
-```
-1. 現在のブランチ名から feature を特定:
-   - ブランチ名パターン: N-short-name (例: 3-search-feature)
-   - speckit スクリプトがこのパターンを期待
+```bash
+# check-prerequisites.sh を実行して FEATURE_DIR を取得
+.specify/scripts/bash/check-prerequisites.sh --json --require-tasks
 
-2. 対応する spec ファイルを読み込み:
-   - .specify/specs/<feature-name>.md (仕様)
-   - ファイル名はブランチ名から推測 (short-name 部分と照合)
-
-3. フォールバック (一致するファイルがない場合):
-   - .specify/specs/*.md を一覧表示
-   - ユーザーに対象ファイルを確認
-
-4. src/**/*.zig を走査 (実装コード)
-5. テストファイルを特定 (test blocks, *_test.zig)
+# 出力例:
+# {"FEATURE_DIR":"/path/to/.specify/specs/001-feature","AVAILABLE_DOCS":["spec.md","plan.md"]}
 ```
 
-**注意**: 複数 feature が存在する場合は、明示的にファイルを指定してもらう。
+```
+2. FEATURE_DIR 配下のファイルを読み込み:
+   - $FEATURE_DIR/spec.md (仕様)
+   - AVAILABLE_DOCS に含まれるファイルを使用
+
+3. src/**/*.zig を走査 (実装コード)
+4. テストファイルを特定 (test blocks, *_test.zig)
+```
+
+**注意**: ブランチ名は `NNN-feature-name` パターン (例: `001-search-feature`) である必要がある。
 
 ### Step 2: Extract Requirements
 

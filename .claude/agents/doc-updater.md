@@ -116,6 +116,11 @@ stateDiagram-v2
 
 `.claude/skills/learned/[pattern-name].md`
 
+**注意**: ディレクトリが存在しない場合は作成する:
+```bash
+mkdir -p .claude/skills/learned
+```
+
 ```markdown
 ---
 name: [pattern-name]
