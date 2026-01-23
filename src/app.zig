@@ -272,6 +272,12 @@ pub const App = struct {
         }
 
         switch (key_char) {
+            vaxis.Key.escape => {
+                // Clear search if active (check input_buffer for 0-match case)
+                if (self.input_buffer.items.len > 0) {
+                    self.clearSearch();
+                }
+            },
             'q' => self.should_quit = true,
             'j', vaxis.Key.down => self.moveCursor(1),
             'k', vaxis.Key.up => self.moveCursor(-1),
@@ -417,6 +423,11 @@ pub const App = struct {
                 self.cursor = visible_count - 1;
             }
         }
+
+        // Refresh search results if search is active
+        if (self.input_buffer.items.len > 0) {
+            self.updateSearchResults() catch {};
+        }
     }
 
     /// l/Enter: expand directory, or open preview for files
@@ -429,6 +440,10 @@ pub const App = struct {
         const entry = &ft.entries.items[actual_index];
         if (entry.kind == .directory) {
             try ft.toggleExpand(actual_index);
+            // Refresh search results if search is active
+            if (self.input_buffer.items.len > 0) {
+                try self.updateSearchResults();
+            }
         } else {
             try self.openPreview(entry.path);
         }
@@ -458,6 +473,10 @@ pub const App = struct {
         if (entry.kind == .directory and entry.expanded) {
             // Collapse expanded directory
             ft.collapseAt(actual_index);
+            // Refresh search results if search is active
+            if (self.input_buffer.items.len > 0) {
+                self.updateSearchResults() catch {};
+            }
         } else if (entry.depth > 0) {
             // Move to parent directory
             self.moveToParent(actual_index);
@@ -618,6 +637,10 @@ pub const App = struct {
                 self.cursor = visible_count - 1;
             }
         }
+        // Refresh search results if search is active
+        if (self.input_buffer.items.len > 0) {
+            self.updateSearchResults() catch {};
+        }
     }
 
     fn expandAll(self: *Self) void {
@@ -636,6 +659,10 @@ pub const App = struct {
                 i += 1;
             }
         }
+        // Refresh search results if search is active
+        if (self.input_buffer.items.len > 0) {
+            self.updateSearchResults() catch {};
+        }
     }
 
     fn toggleCurrentDirectory(self: *Self) !void {
@@ -647,6 +674,10 @@ pub const App = struct {
 
         if (entry.kind == .directory) {
             try ft.toggleExpand(actual_index);
+            // Refresh search results if search is active
+            if (self.input_buffer.items.len > 0) {
+                try self.updateSearchResults();
+            }
         }
     }
 
@@ -805,6 +836,11 @@ pub const App = struct {
                 self.cursor = visible_count - 1;
             }
             self.status_message = "Reloaded";
+
+            // Refresh search results if search is active
+            if (self.input_buffer.items.len > 0) {
+                try self.updateSearchResults();
+            }
         }
     }
 
@@ -859,7 +895,12 @@ pub const App = struct {
                 var tree_win = win.child(.{ .height = tree_height });
                 tree_win.clear();
                 if (self.file_tree) |ft| {
-                    try ui.renderTree(tree_win, ft, self.cursor, self.scroll_offset, self.show_hidden, arena);
+                    // Pass search query for highlighting if search is active
+                    const search_query: ?[]const u8 = if (self.input_buffer.items.len > 0)
+                        self.input_buffer.items
+                    else
+                        null;
+                    try ui.renderTree(tree_win, ft, self.cursor, self.scroll_offset, self.show_hidden, search_query, self.search_matches.items, arena);
                 } else {
                     _ = tree_win.printSegment(.{ .text = "No directory loaded" }, .{});
                 }
@@ -940,13 +981,33 @@ pub const App = struct {
                     }
                 }
 
-                // Show pending key or status message on the right
+                // Show pending key, search status, or status message on the right
                 if (self.pending_key.get()) |pending| {
                     const pending_str = try std.fmt.allocPrint(arena, "{c}-", .{@as(u8, @intCast(pending))});
                     const col: u16 = @intCast(win.width -| pending_str.len -| 1);
                     _ = win.printSegment(.{
                         .text = pending_str,
                         .style = .{ .fg = .{ .index = 3 } }, // yellow
+                    }, .{ .row_offset = row, .col_offset = col });
+                } else if (self.input_buffer.items.len > 0) {
+                    // Show active search query and match count
+                    const safe_query = try ui.sanitizeForDisplay(arena, self.input_buffer.items);
+                    const match_count = self.search_matches.items.len;
+                    const current = if (match_count > 0) self.current_match + 1 else 0;
+                    const search_status = try std.fmt.allocPrint(arena, "/{s} [{d}/{d}]", .{
+                        safe_query,
+                        current,
+                        match_count,
+                    });
+                    const col: u16 = @intCast(win.width -| search_status.len -| 1);
+                    // Red for no matches, yellow for matches
+                    const style: vaxis.Style = if (match_count == 0)
+                        .{ .fg = .{ .index = 1 }, .bold = true } // red
+                    else
+                        .{ .fg = .{ .index = 3 }, .bold = true }; // yellow
+                    _ = win.printSegment(.{
+                        .text = search_status,
+                        .style = style,
                     }, .{ .row_offset = row, .col_offset = col });
                 } else if (self.status_message) |msg| {
                     const safe_msg = try ui.sanitizeForDisplay(arena, msg);
@@ -962,9 +1023,12 @@ pub const App = struct {
     }
 
     fn renderStatusRow2(self: *Self, win: vaxis.Window, row: u16) !void {
-        const hints = switch (self.mode) {
-            .tree_view => "j/k:move  h/l:collapse/expand  o:preview  .:hidden  /:search  ?:help  q:quit",
-            .search => "Enter:confirm  Esc:cancel  n/N:next/prev",
+        const hints: []const u8 = switch (self.mode) {
+            .tree_view => if (self.input_buffer.items.len > 0)
+                "n/N:next/prev  Esc:clear search  /:new search  ?:help  q:quit"
+            else
+                "j/k:move  h/l:collapse/expand  o:preview  .:hidden  /:search  ?:help  q:quit",
+            .search => "Enter:confirm  Esc:cancel",
             .path_input => "Enter:go  Esc:cancel",
             .preview => "j/k:scroll  o:close  q:quit",
             else => "",
@@ -979,25 +1043,10 @@ pub const App = struct {
     }
 };
 
-/// Case-insensitive substring search
+/// Case-insensitive substring search (delegates to ui.findMatchPosition)
 fn containsIgnoreCase(haystack: []const u8, needle: []const u8) bool {
-    if (needle.len > haystack.len) return false;
     if (needle.len == 0) return true;
-
-    const end = haystack.len - needle.len + 1;
-    for (0..end) |i| {
-        var match = true;
-        for (0..needle.len) |j| {
-            const h = std.ascii.toLower(haystack[i + j]);
-            const n = std.ascii.toLower(needle[j]);
-            if (h != n) {
-                match = false;
-                break;
-            }
-        }
-        if (match) return true;
-    }
-    return false;
+    return ui.findMatchPosition(haystack, needle) != null;
 }
 
 /// Base64 encode for OSC 52 clipboard
