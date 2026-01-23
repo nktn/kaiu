@@ -21,11 +21,26 @@ tasks.md が spec.md の全要件をカバーしているか検証する。
 
 ### Step 1: Load Artifacts
 
+**重要: 現在の feature ブランチに対応するファイルのみを読み込む**
+
 ```
-1. .specify/specs/*.md を読み込み (spec.md)
-2. .specify/tasks/*.md を読み込み (tasks.md)
-3. .specify/memory/constitution.md を読み込み (原則)
+1. 現在のブランチ名から feature を特定:
+   - ブランチ名パターン: N-short-name (例: 3-search-feature)
+   - または: feat/<feature-name>, feature/<feature-name>
+
+2. 対応する spec/tasks ファイルを読み込み:
+   - .specify/specs/<feature-name>.md (仕様)
+   - .specify/tasks/<feature-name>.md (タスクリスト)
+   - ファイル名はブランチ名から推測 (short-name 部分と照合)
+
+3. フォールバック (一致するファイルがない場合):
+   - .specify/specs/*.md と .specify/tasks/*.md を一覧表示
+   - ユーザーに対象ファイルを確認
+
+4. .specify/memory/constitution.md を読み込み (原則)
 ```
+
+**注意**: 複数 feature が存在する場合は、明示的にファイルを指定してもらう。
 
 ### Step 2: Extract Requirements
 

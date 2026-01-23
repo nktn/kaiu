@@ -43,11 +43,19 @@ $ARGUMENTS
 
 ## Execution Steps
 
-### Step 1: Setup
+### Step 1: ブランチ確認
+
+**前提**: `/speckit.specify` で feature ブランチが既に作成されている。
 
 ```bash
-git checkout -b feat/<feature-name>
+# 現在のブランチを確認
+git branch --show-current
+# 期待: N-short-name (例: 3-search-feature)
 ```
+
+**注意**: `/implement` は独自にブランチを作成しない。
+- `/speckit.specify` → `/speckit.plan` → `/speckit.tasks` フローでブランチが作成済み
+- 独立フローで使用する場合は、先に手動でブランチを作成すること
 
 ---
 
@@ -57,21 +65,23 @@ git checkout -b feat/<feature-name>
 
 ```
 Task(subagent_type: "orchestrator", prompt: "
-.specify/tasks/ 配下のタスクを実行してください。
+現在の feature ブランチに対応するタスクを実行してください。
 
 Phase 1: Planning
-1. .specify/specs/*.md を確認
-2. 実行計画を出力（各タスクで呼び出す Agent を明示）
-3. ユーザー承認を待つ（承認までコードを書かない）
+1. ブランチ名から対応する spec/tasks ファイルを特定
+2. .specify/specs/<feature>.md と .specify/tasks/<feature>.md を確認
+3. 実行計画を出力（各タスクで呼び出す Agent を明示）
+4. ユーザー承認を待つ（承認までコードを書かない）
 
 Phase 2: Execution (承認後)
-各タスクで以下の Agent を必ず呼び出す:
+各タスクで以下の Agent を順番に呼び出す:
 - zig-architect
 - zig-tdd
-- zig-build-resolver
+- (ビルド失敗時のみ) zig-build-resolver
 
 Phase 3: Completion
 - zig-refactor-cleaner
+- speckit-impl-verifier (最終検証)
 ")
 ```
 
@@ -140,13 +150,21 @@ TDD サイクルを実行:
 ")
 ```
 
-#### 3. zig-build-resolver
+#### 3. zig-build-resolver (CONDITIONAL)
+
+**zig build 失敗時のみ呼び出す:**
 
 ```
-Task(subagent_type: "zig-build-resolver", prompt: "
-zig build と zig build test を実行。
-エラーがあれば修正、なければ「ビルド成功」と報告。
-")
+# TDD 後にビルド確認
+zig build && zig build test
+
+# エラーがある場合のみ呼び出し
+if (build_failed) {
+    Task(subagent_type: "zig-build-resolver", prompt: "
+    zig build でエラーが発生しました。
+    エラー内容を分析し、最小限の修正で解決してください。
+    ")
+}
 ```
 
 #### 4. タスク完了マーク
@@ -228,10 +246,12 @@ git push -u origin feat/<feature-name>
 | `orchestrator` | タスク管理、計画立案、承認待ち | 最初に呼び出し |
 | `zig-architect` | 設計判断、architecture.md 更新 | 各タスクの最初 |
 | `zig-tdd` | TDD サイクル (RED→GREEN) | 設計判断後 |
-| `zig-build-resolver` | ビルド確認/修正 | TDD 後 |
+| `zig-build-resolver` | ビルドエラー修正 | ビルド失敗時のみ |
 | `zig-refactor-cleaner` | リファクタリング | 全タスク完了後 |
+| `speckit-impl-verifier` | 実装検証 | Phase 完了後、最終 |
+| `doc-updater` | ドキュメント更新 | 検証 PASS 後 |
 
-**すべての Agent は MANDATORY（必須）。スキップしない。**
+**注意**: `zig-build-resolver` はビルド失敗時のみ呼び出し。他は必須。
 
 ---
 

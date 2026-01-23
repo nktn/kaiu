@@ -21,11 +21,26 @@ model: opus
 
 ### Step 1: Load Artifacts
 
+**重要: 現在の feature ブランチに対応するファイルのみを読み込む**
+
 ```
-1. .specify/specs/*.md を読み込み (spec.md)
-2. src/**/*.zig を走査 (実装コード)
-3. テストファイルを特定 (test blocks, *_test.zig)
+1. 現在のブランチ名から feature を特定:
+   - ブランチ名パターン: N-short-name (例: 3-search-feature)
+   - または: feat/<feature-name>, feature/<feature-name>
+
+2. 対応する spec ファイルを読み込み:
+   - .specify/specs/<feature-name>.md (仕様)
+   - ファイル名はブランチ名から推測 (short-name 部分と照合)
+
+3. フォールバック (一致するファイルがない場合):
+   - .specify/specs/*.md を一覧表示
+   - ユーザーに対象ファイルを確認
+
+4. src/**/*.zig を走査 (実装コード)
+5. テストファイルを特定 (test blocks, *_test.zig)
 ```
+
+**注意**: 複数 feature が存在する場合は、明示的にファイルを指定してもらう。
 
 ### Step 2: Extract Requirements
 

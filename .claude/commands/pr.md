@@ -146,8 +146,10 @@ PR が見つからない場合:
 ## ワークフローでの使い方
 
 ```
-/update-docs → /pr → /codex → /pr comment (意思決定) → 修正 → /codex
+/implement → /pr → /codex → /pr comment (意思決定) → 修正 → /codex
 ```
+
+**注**: `/implement` 完了後、検証 PASS で `doc-updater` agent が自動でドキュメント更新を行う。
 
 <user-request>
 $ARGUMENTS
