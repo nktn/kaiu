@@ -1,6 +1,10 @@
 ---
 description: Generate an actionable, dependency-ordered tasks.md for the feature based on available design artifacts.
-handoffs: 
+handoffs:
+  - label: Verify Task Coverage
+    agent: speckit.task-verify
+    prompt: Verify tasks cover all spec requirements
+    send: true
   - label: Analyze For Consistency
     agent: speckit.analyze
     prompt: Run a project analysis for consistency

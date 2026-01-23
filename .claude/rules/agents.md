@@ -13,6 +13,8 @@ Agent の使い分けと実行戦略。
 | `zig-tdd` | RED → GREEN → REFACTOR | 各タスク実装時 |
 | `zig-build-resolver` | コンパイルエラー修正 | `zig build` 失敗時 |
 | `zig-refactor-cleaner` | 未使用コード削除・クリーンアップ | 全タスク完了後 |
+| `speckit-task-verifier` | Task カバレッジ検証 | `/speckit.tasks` 後、実装前 |
+| `speckit-impl-verifier` | 実装検証・ギャップ検出 | Phase 完了後、全タスク完了後 |
 
 ## Available Skills
 
@@ -34,7 +36,9 @@ Agent の使い分けと実行戦略。
 | struct 設計・メモリ戦略 | `zig-architect` |
 | 実装タスク | `zig-tdd` |
 | `zig build` エラー | `zig-build-resolver` |
-| 全タスク完了後 | `zig-refactor-cleaner` |
+| `/speckit.tasks` 後、実装前 | `speckit-task-verifier` |
+| Phase 完了後 | `speckit-impl-verifier` (部分検証) |
+| 全タスク完了後 | `zig-refactor-cleaner` → `speckit-impl-verifier` |
 | PR 後のレビュー | `codex` (skill) |
 
 ### zig-architect Triggers
@@ -87,6 +91,37 @@ Agent の使い分けと実行戦略。
 
 **原則**: テストが通る状態を維持、RISKY な変更はしない
 
+### speckit-task-verifier Triggers
+
+`/speckit.tasks` 完了後、実装前に実行:
+
+```
+- User Story 単位のカバレッジ検証
+- Acceptance Criteria のタスクマッピング確認
+- Priority 整合性チェック (P1 が早い Phase にあるか)
+- Constitution 原則との整合性確認
+```
+
+**出力**: Coverage Matrix、Gap List、追加タスク提案
+
+### speckit-impl-verifier Triggers
+
+以下のタイミングで実行:
+
+```
+- Phase 完了後 (部分検証): --phase=N --story=USn
+- 全タスク完了後 (最終検証): 引数なし
+```
+
+**検証項目**:
+- Functional Requirements の実装確認
+- Acceptance Scenarios のコードパス存在確認
+- Success Criteria の検証可能性確認
+- Out of Scope 機能が実装されていないか確認
+- テストカバレッジ分析
+
+**出力**: Implementation Status Matrix、Missing List、追加タスク提案
+
 ## Execution Strategy
 
 ### Parallel Execution (並行実行)
@@ -129,6 +164,14 @@ fn canRunParallel(taskA: Task, taskB: Task) bool {
 ### 実装フロー
 
 ```
+/speckit.tasks
+    │
+    ▼
+speckit-task-verifier (カバレッジ検証)
+    │
+    ├── [GAP あり] → タスク追加 → 再検証
+    │
+    ▼ [PASS]
 orchestrator
     │
     ├── タスク分析
@@ -148,6 +191,13 @@ orchestrator
     │
     ├── Task B ──→ zig-tdd (並行)
     │
+    ├── Phase 3 (US1) 完了 ──→ speckit-impl-verifier (部分検証)
+    │                              │
+    │                              ├── [GAP] → 追加タスク
+    │                              │
+    │                              ▼ [PASS]
+    ├── Phase 4 (US2) 完了 ──→ speckit-impl-verifier (部分検証)
+    │
     ▼
    全タスク完了
     │
@@ -155,6 +205,11 @@ orchestrator
   zig-refactor-cleaner (クリーンアップ)
     │
     ▼
+  speckit-impl-verifier (最終検証)
+    │
+    ├── [GAP あり] → 追加タスク → 再実装
+    │
+    ▼ [PASS]
   /learn (パターン保存)
     │
     ▼

@@ -159,7 +159,34 @@ Task(subagent_type: "zig-refactor-cleaner", prompt: "
 ")
 ```
 
-### 3.2 完了レポート
+### 3.2 speckit-impl-verifier (MANDATORY)
+
+```
+Task(subagent_type: "speckit-impl-verifier", prompt: "
+実装完了後の検証を実行:
+1. 全 Functional Requirements の実装確認
+2. Acceptance Scenarios のコードパス確認
+3. Success Criteria の検証可能性確認
+4. Out of Scope 機能が実装されていないか確認
+5. テストカバレッジの分析
+
+検証レポートを出力し、ギャップがあれば追加タスクを提案。
+")
+```
+
+**検証結果に応じた対応:**
+
+```
+[検証 PASS]
+  → 3.3 完了レポートへ進む
+
+[検証 FAIL - CRITICAL ギャップあり]
+  → ユーザーに報告
+  → 追加タスクの提案
+  → ユーザー承認後、Phase 2 へ戻る
+```
+
+### 3.3 完了レポート
 
 ```
 === 実行完了 ===
@@ -168,6 +195,7 @@ Task(subagent_type: "zig-refactor-cleaner", prompt: "
 作成ファイル: 4
 テスト: 15 passing
 設計判断: 5 件 (architecture.md に記録)
+実装検証: PASS (0 CRITICAL, 2 WARNINGS)
 
 次のステップ:
 - git commit
@@ -204,5 +232,6 @@ Task 1.3 failed: [エラー内容]
 | `zig-tdd` | 設計判断後 | TDD サイクル (RED→GREEN) |
 | `zig-build-resolver` | TDD 後 | ビルドエラー修正 |
 | `zig-refactor-cleaner` | 全タスク完了後 | リファクタリング |
+| `speckit-impl-verifier` | 全タスク完了後 | 実装検証、ギャップ検出 |
 
 **注意: すべての Agent は MANDATORY（必須）。スキップしない。**

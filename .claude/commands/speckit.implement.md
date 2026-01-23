@@ -125,11 +125,22 @@ You **MUST** consider the user input before proceeding (if not empty).
    - Suggest next steps if implementation cannot proceed
    - **IMPORTANT** For completed tasks, make sure to mark the task off as [X] in the tasks file.
 
-9. Completion validation:
-   - Verify all required tasks are completed
-   - Check that implemented features match the original specification
-   - Validate that tests pass and coverage meets requirements
-   - Confirm the implementation follows the technical plan
-   - Report final status with summary of completed work
+9. Phase completion verification (after each User Story phase):
+   - After completing all tasks in a User Story phase, run partial verification
+   - Check that the User Story's acceptance criteria are satisfied
+   - Report phase status: "Phase N (USn) Complete - Ready for next phase" or list blocking issues
+   - Continue to next phase only if verification passes
+
+10. Final completion validation:
+    - Verify all required tasks are completed
+    - Run `/speckit.impl-verify` for comprehensive verification
+    - Check that implemented features match the original specification
+    - Validate that tests pass and coverage meets requirements
+    - Confirm the implementation follows the technical plan
+    - Report final status with summary of completed work
+
+11. Post-implementation recommendations:
+    - If `/speckit.impl-verify` identifies gaps: suggest running `/speckit.tasks` to add missing tasks
+    - If all verified: recommend proceeding to `/pr` for pull request creation
 
 Note: This command assumes a complete task breakdown exists in tasks.md. If tasks are incomplete or missing, suggest running `/speckit.tasks` first to regenerate the task list.
