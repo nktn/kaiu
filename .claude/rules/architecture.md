@@ -10,35 +10,65 @@
 stateDiagram-v2
     [*] --> TreeView: init
 
-    TreeView --> TreeView: j (cursor down)
-    TreeView --> TreeView: k (cursor up)
-    TreeView --> TreeView: Enter on dir (toggle expand)
-    TreeView --> TreeView: h on expanded (collapse)
+    TreeView --> TreeView: j/k (cursor move)
+    TreeView --> TreeView: h (collapse/parent)
+    TreeView --> TreeView: l/Enter on dir (expand)
     TreeView --> TreeView: . (toggle hidden)
-    TreeView --> Preview: o (open preview)
-    TreeView --> [*]: q (quit)
+    TreeView --> TreeView: gg/G (jump top/bottom)
+    TreeView --> TreeView: H/L (collapse/expand all)
+    TreeView --> TreeView: Tab (toggle dir)
+    TreeView --> TreeView: R (reload)
+    TreeView --> TreeView: Esc (clear search)
+    TreeView --> Preview: o/l on file
+    TreeView --> Search: /
+    TreeView --> PathInput: gn
+    TreeView --> Help: ?
+    TreeView --> [*]: q
 
-    Preview --> Preview: j (scroll down)
-    Preview --> Preview: k (scroll up)
-    Preview --> TreeView: o (close preview)
-    Preview --> [*]: q (quit)
+    Search --> TreeView: Enter (confirm)
+    Search --> TreeView: Esc (cancel)
+
+    PathInput --> TreeView: Enter (navigate)
+    PathInput --> TreeView: Esc (cancel)
+
+    Preview --> TreeView: o/h (close)
+    Preview --> [*]: q
+
+    Help --> TreeView: any key
 ```
 
 ### State Transitions
 
 | From | Event | To | Action |
 |------|-------|-----|--------|
-| TreeView | `j` | TreeView | cursor_down() |
-| TreeView | `k` | TreeView | cursor_up() |
-| TreeView | `l` on dir | TreeView | expand() |
-| TreeView | `o` on file | Preview | open_preview() |
+| TreeView | `j`/`k` | TreeView | moveCursor() |
+| TreeView | `l`/`Enter` on dir | TreeView | expandOrEnter() |
+| TreeView | `l`/`Enter` on file | Preview | openPreview() |
 | TreeView | `h` on expanded dir | TreeView | collapse() |
-| TreeView | `.` | TreeView | toggle_hidden() |
+| TreeView | `h` on file/collapsed | TreeView | moveToParent() |
+| TreeView | `.` | TreeView | toggleHidden() |
+| TreeView | `gg` | TreeView | jumpToTop() |
+| TreeView | `G` | TreeView | jumpToBottom() |
+| TreeView | `H` | TreeView | collapseAll() |
+| TreeView | `L` | TreeView | expandAll() |
+| TreeView | `Tab` | TreeView | toggleCurrentDirectory() |
+| TreeView | `R` | TreeView | reloadTree() |
+| TreeView | `/` | Search | enterSearchMode() |
+| TreeView | `n`/`N` | TreeView | nextSearchMatch()/prevSearchMatch() |
+| TreeView | `Esc` | TreeView | clearSearch() |
+| TreeView | `gn` | PathInput | enterPathInputMode() |
+| TreeView | `c`/`C` | TreeView | copyPathToClipboard() |
+| TreeView | `?` | Help | enterHelpMode() |
 | TreeView | `q` | Quit | cleanup() |
-| Preview | `o` | TreeView | close_preview() |
-| Preview | `j` | Preview | scroll_down() |
-| Preview | `k` | Preview | scroll_up() |
+| Search | `Enter` | TreeView | confirm search |
+| Search | `Esc` | TreeView | clearSearch() |
+| Search | char | Search | updateSearchResults() |
+| PathInput | `Enter` | TreeView | navigateToInputPath() |
+| PathInput | `Esc` | TreeView | cancel |
+| Preview | `o`/`h` | TreeView | closePreview() |
+| Preview | `j`/`k` | Preview | scroll |
 | Preview | `q` | Quit | cleanup() |
+| Help | any | TreeView | dismiss |
 
 ### State Enum
 
@@ -46,9 +76,9 @@ stateDiagram-v2
 pub const AppMode = enum {
     tree_view,   // Main mode - file tree navigation
     preview,     // Full-screen file preview
-    search,      // Phase 2: Search mode
-    path_input,  // Phase 2: Go to path mode
-    help,        // Phase 2: Help overlay
+    search,      // Incremental search mode
+    path_input,  // Go to path mode
+    help,        // Help overlay
 };
 ```
 
@@ -56,31 +86,117 @@ pub const AppMode = enum {
 
 ```
 src/
-├── main.zig      # Entry point
-├── app.zig       # App state, event loop, state machine
-├── tree.zig      # FileTree data structure
-└── ui.zig        # libvaxis rendering
+├── main.zig      # Entry point, CLI args, path validation
+├── app.zig       # App state, event loop, state machine (~1100 lines)
+├── tree.zig      # FileTree data structure (~370 lines)
+└── ui.zig        # libvaxis rendering, highlighting (~420 lines)
 ```
+
+### Module Responsibilities
+
+| Module | Responsibility |
+|--------|---------------|
+| main.zig | CLI引数処理、パス検証、チルダ展開、App初期化 |
+| app.zig | アプリケーション状態、イベントループ、キー処理、検索ロジック |
+| tree.zig | FileTree構造、展開/折りたたみ、可視インデックス変換 |
+| ui.zig | レンダリング、検索ハイライト、ヘルプ表示、サニタイズ |
 
 ## Memory Strategy
 
 | Module | Allocator | Rationale |
 |--------|-----------|-----------|
-| (未定) | | |
+| FileTree | ArenaAllocator | 全ノードは FileTree と共に一括解放 |
+| App.input_buffer | ArrayList(u8) | 検索/パス入力の動的バッファ |
+| App.search_matches | ArrayList(usize) | マッチしたエントリのインデックス |
+| App.render_arena | ArenaAllocator | フレームごとにリセット |
 
-## Error Sets
-
-```zig
-// 定義され次第追記
-```
-
-## Data Structures
+## Key Data Structures
 
 ### FileTree
-- (実装時に詳細追記)
 
-### AppState
-- (実装時に詳細追記)
+```zig
+pub const FileTree = struct {
+    allocator: Allocator,
+    arena: std.heap.ArenaAllocator,
+    root_path: []const u8,
+    entries: std.ArrayList(FileEntry),
+
+    // Operations
+    pub fn init(allocator: Allocator, path: []const u8) !*FileTree
+    pub fn readDirectory(self: *FileTree) !void
+    pub fn toggleExpand(self: *FileTree, index: usize) !void
+    pub fn collapseAt(self: *FileTree, index: usize) void
+    pub fn countVisible(self: *FileTree, show_hidden: bool) usize
+    pub fn visibleToActualIndex(self: *FileTree, visible_index: usize, show_hidden: bool) ?usize
+    pub fn actualToVisibleIndex(self: *FileTree, actual_index: usize, show_hidden: bool) ?usize
+};
+```
+
+### FileEntry
+
+```zig
+pub const FileEntry = struct {
+    name: []const u8,      // ArenaAllocator が所有
+    path: []const u8,      // フルパス
+    kind: std.fs.File.Kind,
+    is_hidden: bool,
+    expanded: bool,        // ディレクトリのみ有効
+    children: ?[]FileEntry,
+    depth: usize,          // インデント深さ
+};
+```
+
+### App State
+
+```zig
+pub const App = struct {
+    allocator: Allocator,
+    vx: vaxis.Vaxis,
+    loop: vaxis.Loop,
+    file_tree: ?*tree.FileTree,
+
+    // View state
+    cursor: usize,
+    scroll_offset: usize,
+    show_hidden: bool,
+    mode: AppMode,
+
+    // Search state
+    input_buffer: ArrayList(u8),
+    search_matches: ArrayList(usize),
+    current_match: usize,
+
+    // Preview state
+    preview_content: ?[]const u8,
+    preview_path: ?[]const u8,
+    preview_scroll: usize,
+
+    // UI state
+    pending_key: PendingKey,
+    status_message: ?[]const u8,
+};
+```
+
+## Search Implementation
+
+### Search Flow
+
+1. `/` キーで検索モード開始
+2. 入力ごとに `updateSearchResults()` を呼び出し
+3. `search_matches` にマッチしたエントリのインデックスを保存
+4. レンダリング時に `search_matches` を参照してハイライト
+5. `n`/`N` でマッチ間を移動
+6. `Esc` または `Enter` で検索モード終了
+
+### Search State Refresh
+
+ツリー構造変更時に検索結果を更新:
+- `toggleHidden()` - 隠しファイル切替
+- `expandOrEnter()` - ディレクトリ展開
+- `handleBack()` - ディレクトリ折りたたみ
+- `collapseAll()`/`expandAll()` - 全展開/全折りたたみ
+- `toggleCurrentDirectory()` - Tab でトグル
+- `reloadTree()` - リロード
 
 ## File Size Guidelines
 
@@ -89,6 +205,12 @@ src/
 | 300-600 | 適正 | 読みやすさの目安 |
 | 600-1000 | 注意 | 分割を検討開始 |
 | 1000+ | 要分割 | モジュール分割を実施 |
+
+**現在のファイルサイズ**:
+- app.zig: ~1100行 (分割検討対象)
+- tree.zig: ~370行 (適正)
+- ui.zig: ~420行 (適正)
+- main.zig: ~140行 (適正)
 
 **重要**: 凝集度（関連する機能がまとまっている）を行数より優先する。
 
@@ -140,6 +262,22 @@ src/
 - 行1: 現在のディレクトリパス + ステータスメッセージ
 - 行2: モード別キーバインドヒント
 - 長いパスは "..." + 末尾で表示
+
+### [2026-01-23] Search Highlight Performance
+**Context**: 検索ハイライトのパフォーマンス最適化
+**Decision**: `search_matches` にマッチインデックスを保存し、レンダリング時に参照
+**Rationale**:
+- 毎フレームの全エントリ検索を避ける
+- マッチしたエントリのみ `findMatchPosition` を呼び出す
+- ツリー変更時に `updateSearchResults()` で同期
+
+### [2026-01-23] Search State Detection
+**Context**: 検索アクティブ状態の判定方法
+**Decision**: `input_buffer.items.len > 0` で判定
+**Rationale**:
+- 0件マッチ時も検索状態として扱う
+- ESC で検索解除可能
+- ステータスバーとヒントの表示切替に使用
 
 ---
 
