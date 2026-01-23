@@ -15,7 +15,7 @@ TUI file explorer with Vim keybindings, written in Zig.
 
 ## Requirements
 
-- Zig 0.14.0+
+- Zig 0.15.2+
 - Terminal with TUI support (recommended: Ghostty, Kitty, WezTerm)
 
 ## Installation
@@ -47,7 +47,7 @@ kaiu ~/.config    # Tilde expansion supported
 | `l` / `→` / `Enter` | Expand directory / open preview |
 | `gg` | Jump to top |
 | `G` | Jump to bottom |
-| `gn` | Go to path |
+| `gn` | Go to path (Enter: confirm, Esc: cancel) |
 
 ### Tree Operations
 

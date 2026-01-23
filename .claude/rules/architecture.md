@@ -19,7 +19,7 @@ stateDiagram-v2
     TreeView --> TreeView: Tab (toggle dir)
     TreeView --> TreeView: R (reload)
     TreeView --> TreeView: Esc (clear search)
-    TreeView --> Preview: o/l on file
+    TreeView --> Preview: o/l/Enter on file
     TreeView --> Search: /
     TreeView --> PathInput: gn
     TreeView --> Help: ?
@@ -105,7 +105,9 @@ src/
 
 | Module | Allocator | Rationale |
 |--------|-----------|-----------|
-| FileTree | ArenaAllocator | 全ノードは FileTree と共に一括解放 |
+| FileTree | GeneralPurposeAllocator | エントリごとに割り当て、deinit で個別解放 |
+| FileEntry.name/path | 個別割り当て | deinit で allocator.free() |
+| FileEntry.children | ArrayList(FileEntry) | 子エントリのリスト、再帰的に deinit |
 | App.input_buffer | ArrayList(u8) | 検索/パス入力の動的バッファ |
 | App.search_matches | ArrayList(usize) | マッチしたエントリのインデックス |
 | App.render_arena | ArenaAllocator | フレームごとにリセット |
@@ -116,13 +118,13 @@ src/
 
 ```zig
 pub const FileTree = struct {
-    allocator: Allocator,
-    arena: std.heap.ArenaAllocator,
+    allocator: std.mem.Allocator,
     root_path: []const u8,
     entries: std.ArrayList(FileEntry),
 
     // Operations
     pub fn init(allocator: Allocator, path: []const u8) !*FileTree
+    pub fn deinit(self: *FileTree) void
     pub fn readDirectory(self: *FileTree) !void
     pub fn toggleExpand(self: *FileTree, index: usize) !void
     pub fn collapseAt(self: *FileTree, index: usize) void
@@ -135,14 +137,22 @@ pub const FileTree = struct {
 ### FileEntry
 
 ```zig
+pub const EntryKind = enum {
+    file,
+    directory,
+};
+
 pub const FileEntry = struct {
-    name: []const u8,      // ArenaAllocator が所有
-    path: []const u8,      // フルパス
-    kind: std.fs.File.Kind,
+    name: []const u8,                    // allocator.dupe で割り当て
+    path: []const u8,                    // フルパス
+    kind: EntryKind,                     // file or directory
     is_hidden: bool,
-    expanded: bool,        // ディレクトリのみ有効
-    children: ?[]FileEntry,
-    depth: usize,          // インデント深さ
+    expanded: bool,                      // ディレクトリのみ有効
+    children: ?std.ArrayList(FileEntry), // 子エントリのリスト
+    depth: usize,                        // インデント深さ
+
+    pub fn deinit(self: *FileEntry, allocator: Allocator) void
+    pub fn isDir(self: FileEntry) bool
 };
 ```
 
@@ -150,30 +160,38 @@ pub const FileEntry = struct {
 
 ```zig
 pub const App = struct {
-    allocator: Allocator,
-    vx: vaxis.Vaxis,
-    loop: vaxis.Loop,
+    allocator: std.mem.Allocator,
     file_tree: ?*tree.FileTree,
-
-    // View state
+    mode: AppMode,
     cursor: usize,
     scroll_offset: usize,
     show_hidden: bool,
-    mode: AppMode,
+    last_wheel_time: i64,
+    should_quit: bool,
+
+    // Vaxis TUI
+    tty: vaxis.Tty,
+    vx: vaxis.Vaxis,
+    loop: vaxis.Loop(Event),
+    tty_buf: [4096]u8,
+    render_arena: std.heap.ArenaAllocator,
+
+    // Multi-key command state
+    pending_key: PendingKey,
+    status_message: ?[]const u8,
+
+    // Input buffer for search/path input modes
+    input_buffer: std.ArrayList(u8),
 
     // Search state
-    input_buffer: ArrayList(u8),
-    search_matches: ArrayList(usize),
+    search_query: ?[]const u8,
+    search_matches: std.ArrayList(usize),
     current_match: usize,
 
     // Preview state
     preview_content: ?[]const u8,
     preview_path: ?[]const u8,
     preview_scroll: usize,
-
-    // UI state
-    pending_key: PendingKey,
-    status_message: ?[]const u8,
 };
 ```
 
@@ -226,19 +244,19 @@ pub const App = struct {
 
 ### [2026-01-22] FileTree Memory Strategy
 **Context**: FileTree のノード群にメモリ割り当て戦略が必要
-**Decision**: ArenaAllocator を使用
+**Decision**: GeneralPurposeAllocator でエントリごとに割り当て
 **Rationale**:
-- 全ノードは FileTree と共に一括解放される
-- 個別の削除は不要（expand/collapse は children ポインタの操作のみ）
-- メモリリーク防止が容易
-**Alternatives**: GPA (より柔軟だがクリーンアップが複雑)
+- 展開/折りたたみ時にエントリを動的に追加/削除
+- deinit で再帰的に解放
+- ArrayList で子エントリを管理
+**Note**: 当初 ArenaAllocator を検討したが、collapse 時のエントリ削除が必要なため GPA を採用
 
 ### [2026-01-22] FileEntry Ownership
-**Context**: FileEntry の name フィールドの所有権
-**Decision**: ArenaAllocator が所有、FileEntry は参照のみ
+**Context**: FileEntry の name/path フィールドの所有権
+**Decision**: 各 FileEntry が allocator.dupe で所有、deinit で個別解放
 **Rationale**:
-- 文字列の重複を避ける
-- 一括解放で安全
+- 展開時に新しいエントリを作成
+- 折りたたみ時に子エントリを再帰的に解放
 
 ### [2026-01-23] CLI Path Validation
 **Context**: CLI 引数のパス検証とチルダ展開
