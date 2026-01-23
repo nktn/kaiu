@@ -5,9 +5,9 @@ handoffs:
     agent: speckit.tasks
     prompt: Regenerate tasks to cover identified gaps
     send: true
-  - label: Proceed to Implementation
-    agent: speckit.implement
-    prompt: Start implementation with verified tasks
+  - label: Run Consistency Analysis
+    agent: speckit.analyze
+    prompt: Run cross-artifact consistency analysis
     send: true
 ---
 

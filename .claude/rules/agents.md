@@ -161,17 +161,32 @@ fn canRunParallel(taskA: Task, taskB: Task) bool {
 
 ## Multi-Agent Collaboration
 
-### 実装フロー
+### 計画フェーズ (spec/task 作成)
 
 ```
+/speckit.specify
+    │
+    ▼
+/speckit.plan
+    │
+    ▼
 /speckit.tasks
     │
     ▼
-speckit-task-verifier (カバレッジ検証)
+/speckit.task-verify (カバレッジ検証)
     │
-    ├── [GAP あり] → タスク追加 → 再検証
+    ├── [GAP あり] → /speckit.tasks で追加 → 再検証
     │
     ▼ [PASS]
+tasks.md 完成 (計画フェーズ終了)
+```
+
+### 実装フェーズ (別セッション/別タイミング)
+
+```
+/speckit.implement
+    │
+    ▼
 orchestrator
     │
     ├── タスク分析
@@ -205,7 +220,7 @@ orchestrator
   zig-refactor-cleaner (クリーンアップ)
     │
     ▼
-  speckit-impl-verifier (最終検証)
+  /speckit.impl-verify (最終検証)
     │
     ├── [GAP あり] → 追加タスク → 再実装
     │
