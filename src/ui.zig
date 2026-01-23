@@ -34,13 +34,14 @@ pub fn renderTree(
     scroll_offset: usize,
     show_hidden: bool,
     search_query: ?[]const u8,
+    search_matches: []const usize,
     arena: std.mem.Allocator,
 ) !void {
     const height = win.height;
     var row: u16 = 0;
     var visible_index: usize = 0;
 
-    for (ft.entries.items) |entry| {
+    for (ft.entries.items, 0..) |entry, actual_index| {
         // Skip hidden files if not showing them
         if (!show_hidden and entry.is_hidden) continue;
 
@@ -54,13 +55,26 @@ pub fn renderTree(
         if (row >= height) break;
 
         const is_cursor = visible_index == cursor;
-        try renderEntry(win, entry, row, is_cursor, search_query, arena);
+        // Only pass search_query if this entry is in search_matches (O(n) but matches are few)
+        const entry_query: ?[]const u8 = if (search_query != null and isInMatches(actual_index, search_matches))
+            search_query
+        else
+            null;
+        try renderEntry(win, entry, row, is_cursor, entry_query, arena);
 
         row += 1;
         visible_index += 1;
     }
 
     // Status bar is now rendered separately by app.zig
+}
+
+/// Check if index is in matches list (linear search, but matches are typically few)
+fn isInMatches(index: usize, matches: []const usize) bool {
+    for (matches) |m| {
+        if (m == index) return true;
+    }
+    return false;
 }
 
 fn renderEntry(
@@ -104,7 +118,7 @@ fn renderEntry(
         col = icon_result.col;
 
         // Render directory name with search highlight
-        col = try renderNameWithHighlight(win, safe_name, row, col, search_query, .{ .fg = .{ .index = 4 }, .bold = true }, arena);
+        col = try renderNameWithHighlight(win, safe_name, row, col, search_query, .{ .fg = .{ .index = 4 }, .bold = true });
 
         _ = win.printSegment(.{
             .text = "/",
@@ -120,12 +134,12 @@ fn renderEntry(
             .{};
 
         // Render file name with search highlight
-        _ = try renderNameWithHighlight(win, safe_name, row, col, search_query, style, arena);
+        _ = try renderNameWithHighlight(win, safe_name, row, col, search_query, style);
     }
 }
 
-/// Find case-insensitive match position in haystack
-fn findMatchPosition(haystack: []const u8, needle: []const u8) ?usize {
+/// Find case-insensitive match position in haystack (public for reuse in app.zig)
+pub fn findMatchPosition(haystack: []const u8, needle: []const u8) ?usize {
     if (needle.len == 0 or needle.len > haystack.len) return null;
 
     const end = haystack.len - needle.len + 1;
@@ -152,9 +166,7 @@ fn renderNameWithHighlight(
     start_col: u16,
     search_query: ?[]const u8,
     base_style: vaxis.Style,
-    arena: std.mem.Allocator,
 ) !u16 {
-    _ = arena;
     var col = start_col;
 
     // If no search query or no match, render normally

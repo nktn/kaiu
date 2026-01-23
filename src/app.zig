@@ -273,8 +273,8 @@ pub const App = struct {
 
         switch (key_char) {
             vaxis.Key.escape => {
-                // Clear search if active
-                if (self.search_matches.items.len > 0) {
+                // Clear search if active (check input_buffer for 0-match case)
+                if (self.input_buffer.items.len > 0) {
                     self.clearSearch();
                 }
             },
@@ -866,11 +866,11 @@ pub const App = struct {
                 tree_win.clear();
                 if (self.file_tree) |ft| {
                     // Pass search query for highlighting if search is active
-                    const search_query: ?[]const u8 = if (self.search_matches.items.len > 0)
+                    const search_query: ?[]const u8 = if (self.input_buffer.items.len > 0)
                         self.input_buffer.items
                     else
                         null;
-                    try ui.renderTree(tree_win, ft, self.cursor, self.scroll_offset, self.show_hidden, search_query, arena);
+                    try ui.renderTree(tree_win, ft, self.cursor, self.scroll_offset, self.show_hidden, search_query, self.search_matches.items, arena);
                 } else {
                     _ = tree_win.printSegment(.{ .text = "No directory loaded" }, .{});
                 }
@@ -959,18 +959,25 @@ pub const App = struct {
                         .text = pending_str,
                         .style = .{ .fg = .{ .index = 3 } }, // yellow
                     }, .{ .row_offset = row, .col_offset = col });
-                } else if (self.search_matches.items.len > 0) {
+                } else if (self.input_buffer.items.len > 0) {
                     // Show active search query and match count
                     const safe_query = try ui.sanitizeForDisplay(arena, self.input_buffer.items);
+                    const match_count = self.search_matches.items.len;
+                    const current = if (match_count > 0) self.current_match + 1 else 0;
                     const search_status = try std.fmt.allocPrint(arena, "/{s} [{d}/{d}]", .{
                         safe_query,
-                        self.current_match + 1,
-                        self.search_matches.items.len,
+                        current,
+                        match_count,
                     });
                     const col: u16 = @intCast(win.width -| search_status.len -| 1);
+                    // Red for no matches, yellow for matches
+                    const style: vaxis.Style = if (match_count == 0)
+                        .{ .fg = .{ .index = 1 }, .bold = true } // red
+                    else
+                        .{ .fg = .{ .index = 3 }, .bold = true }; // yellow
                     _ = win.printSegment(.{
                         .text = search_status,
-                        .style = .{ .fg = .{ .index = 3 }, .bold = true }, // yellow, bold
+                        .style = style,
                     }, .{ .row_offset = row, .col_offset = col });
                 } else if (self.status_message) |msg| {
                     const safe_msg = try ui.sanitizeForDisplay(arena, msg);
@@ -987,7 +994,7 @@ pub const App = struct {
 
     fn renderStatusRow2(self: *Self, win: vaxis.Window, row: u16) !void {
         const hints: []const u8 = switch (self.mode) {
-            .tree_view => if (self.search_matches.items.len > 0)
+            .tree_view => if (self.input_buffer.items.len > 0)
                 "n/N:next/prev  Esc:clear search  /:new search  ?:help  q:quit"
             else
                 "j/k:move  h/l:collapse/expand  o:preview  .:hidden  /:search  ?:help  q:quit",
@@ -1006,25 +1013,10 @@ pub const App = struct {
     }
 };
 
-/// Case-insensitive substring search
+/// Case-insensitive substring search (delegates to ui.findMatchPosition)
 fn containsIgnoreCase(haystack: []const u8, needle: []const u8) bool {
-    if (needle.len > haystack.len) return false;
     if (needle.len == 0) return true;
-
-    const end = haystack.len - needle.len + 1;
-    for (0..end) |i| {
-        var match = true;
-        for (0..needle.len) |j| {
-            const h = std.ascii.toLower(haystack[i + j]);
-            const n = std.ascii.toLower(needle[j]);
-            if (h != n) {
-                match = false;
-                break;
-            }
-        }
-        if (match) return true;
-    }
-    return false;
+    return ui.findMatchPosition(haystack, needle) != null;
 }
 
 /// Base64 encode for OSC 52 clipboard
