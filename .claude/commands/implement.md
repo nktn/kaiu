@@ -20,7 +20,7 @@ $ARGUMENTS
 │  orchestrator (タスク管理 Agent)                             │
 │                                                             │
 │  Phase 1: Planning                                          │
-│  ├── specs/<feature>.md 確認 (ブランチ名から特定)             │
+│  ├── .specify/specs/<feature>.md 確認                        │
 │  ├── 計画出力（各タスクの Agent 呼び出しを明示）               │
 │  └── ユーザー承認待ち ← **承認までコードを書かない**           │
 │                                                             │
