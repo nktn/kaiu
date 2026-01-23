@@ -21,8 +21,7 @@ model: sonnet
 | ファイル | 内容 |
 |----------|------|
 | `README.md` | プロジェクト概要、インストール、キーバインド表 |
-| `CLAUDE.md` | Claude Code 向けガイド、アーキテクチャ概要 |
-| `.claude/rules/architecture.md` | 状態遷移図、InputMode 詳細,アーキテクチャ概要 |
+| `.claude/rules/architecture.md` | 状態遷移図、InputMode 詳細 |
 
 ## 更新トリガー
 
@@ -30,8 +29,8 @@ model: sonnet
 
 - **新しいキーバインド追加** → README.md, architecture.md
 - **InputMode 追加/変更** → architecture.md 状態遷移図
-- **新機能追加** → README.md, CLAUDE.md
-- **依存関係変更** → architecture.md 
+- **新機能追加** → README.md
+- **状態遷移変更** → architecture.md
 
 ## ワークフロー
 

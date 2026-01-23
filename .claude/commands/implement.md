@@ -201,7 +201,7 @@ spec.md の要件が実装されているか最終確認。
 ```
 Task(subagent_type: "doc-updater", prompt: "
 実装完了後の処理:
-1. ドキュメント更新 (README.md, architecture.md, CLAUDE.md)
+1. ドキュメント更新 (README.md, architecture.md)
 2. セッションからパターン抽出・保存
 ")
 ```

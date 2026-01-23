@@ -136,7 +136,7 @@ Agent の使い分けと実行戦略。
 **ドキュメント更新対象**:
 - キーバインド追加/変更 → README.md, architecture.md
 - InputMode 追加/変更 → architecture.md 状態遷移図
-- 新機能追加 → README.md, CLAUDE.md
+- 新機能追加 → README.md
 
 **パターン学習対象**:
 - 非自明なエラー解決
