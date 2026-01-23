@@ -26,7 +26,7 @@ model: opus
 ```
 1. 現在のブランチ名から feature を特定:
    - ブランチ名パターン: N-short-name (例: 3-search-feature)
-   - または: feat/<feature-name>, feature/<feature-name>
+   - speckit スクリプトがこのパターンを期待
 
 2. 対応する spec ファイルを読み込み:
    - .specify/specs/<feature-name>.md (仕様)

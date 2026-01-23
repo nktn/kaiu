@@ -50,10 +50,8 @@ $ARGUMENTS
 ```bash
 # 現在のブランチを確認
 git branch --show-current
-# 期待されるパターン:
-#   - N-short-name (例: 3-search-feature) ← speckit 標準
-#   - feat/<feature-name> (例: feat/search)
-#   - feature/<feature-name> (例: feature/search)
+# 期待されるパターン: N-short-name (例: 3-search-feature)
+# speckit スクリプトがこのパターンを期待
 ```
 
 **注意**: `/implement` は独自にブランチを作成しない。
@@ -233,7 +231,7 @@ Task(subagent_type: "doc-updater", prompt: "
 ```bash
 git add <files>
 git commit -m "feat: <description>"
-git push -u origin feat/<feature-name>
+git push  # speckit フローでブランチは既に作成・push 済み
 ```
 
 ```
