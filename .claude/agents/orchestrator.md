@@ -101,7 +101,7 @@ AskUserQuestion(
 
 ### 2.1 各タスクの実行
 
-**各タスクに対して、以下の 3 つの Agent を必ず順番に呼び出す:**
+**各タスクに対して、以下の Agent を順番に呼び出す:**
 
 #### Step 1: zig-architect (MANDATORY)
 

@@ -20,22 +20,22 @@ $ARGUMENTS
 │  orchestrator (タスク管理 Agent)                             │
 │                                                             │
 │  Phase 1: Planning                                          │
-│  ├── specs/*.md 確認                                        │
+│  ├── specs/<feature>.md 確認 (ブランチ名から特定)             │
 │  ├── 計画出力（各タスクの Agent 呼び出しを明示）               │
 │  └── ユーザー承認待ち ← **承認までコードを書かない**           │
 │                                                             │
 │  Phase 2: Execution (承認後)                                │
-│  │  各タスクに対して以下の Agent を順番に実行:                │
+│  │  各タスクに対して Agent を実行:                            │
 │  │  ┌─────────────┐   ┌─────────────┐   ┌─────────────────┐│
 │  │  │zig-architect│ → │  zig-tdd    │ → │zig-build-resolver││
-│  │  │ 設計判断     │   │ RED→GREEN  │   │ ビルド確認       ││
+│  │  │ 設計判断     │   │ RED→GREEN  │   │ (失敗時のみ)     ││
 │  │  └─────────────┘   └─────────────┘   └─────────────────┘│
 │  │                                                          │
 │  Phase 3: Completion                                        │
-│  │  ┌─────────────────────┐                                 │
-│  │  │zig-refactor-cleaner │                                 │
-│  │  │ リファクタリング      │                                 │
-│  │  └─────────────────────┘                                 │
+│  │  ┌─────────────────────┐   ┌─────────────────────┐      │
+│  │  │zig-refactor-cleaner │ → │speckit-impl-verifier│      │
+│  │  │ リファクタリング      │   │ 最終検証            │      │
+│  │  └─────────────────────┘   └─────────────────────┘      │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -50,7 +50,10 @@ $ARGUMENTS
 ```bash
 # 現在のブランチを確認
 git branch --show-current
-# 期待: N-short-name (例: 3-search-feature)
+# 期待されるパターン:
+#   - N-short-name (例: 3-search-feature) ← speckit 標準
+#   - feat/<feature-name> (例: feat/search)
+#   - feature/<feature-name> (例: feature/search)
 ```
 
 **注意**: `/implement` は独自にブランチを作成しない。
@@ -93,7 +96,7 @@ Phase 3: Completion
 === 実行計画 ===
 
 ■ 関連 Spec
-- specs/*.md (該当する spec を列挙)
+- .specify/specs/<feature>.md (対象の spec ファイル)
 
 ■ タスク一覧と Agent 呼び出し
 
@@ -101,18 +104,19 @@ Task 1.1: Project Setup
   ├── 変更ファイル: build.zig, build.zig.zon
   ├── 変更内容: プロジェクト初期化
   ├── 影響範囲: なし
-  └── Agent: zig-architect → zig-tdd → zig-build-resolver
+  └── Agent: zig-architect → zig-tdd → (失敗時) zig-build-resolver
 
 Task 1.2: Directory Reading
   ├── 変更ファイル: src/tree.zig
   ├── 変更内容: FileTree 実装
   ├── 影響範囲: なし
-  └── Agent: zig-architect → zig-tdd → zig-build-resolver
+  └── Agent: zig-architect → zig-tdd → (失敗時) zig-build-resolver
 
 ... (全タスク)
 
 ■ 全タスク完了後
-  └── zig-refactor-cleaner
+  ├── zig-refactor-cleaner
+  └── speckit-impl-verifier (最終検証)
 
 === この計画で進めていいですか？ ===
 ```
