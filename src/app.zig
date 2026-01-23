@@ -423,6 +423,11 @@ pub const App = struct {
                 self.cursor = visible_count - 1;
             }
         }
+
+        // Refresh search results if search is active
+        if (self.input_buffer.items.len > 0) {
+            self.updateSearchResults() catch {};
+        }
     }
 
     /// l/Enter: expand directory, or open preview for files
@@ -435,6 +440,10 @@ pub const App = struct {
         const entry = &ft.entries.items[actual_index];
         if (entry.kind == .directory) {
             try ft.toggleExpand(actual_index);
+            // Refresh search results if search is active
+            if (self.input_buffer.items.len > 0) {
+                try self.updateSearchResults();
+            }
         } else {
             try self.openPreview(entry.path);
         }
@@ -464,6 +473,10 @@ pub const App = struct {
         if (entry.kind == .directory and entry.expanded) {
             // Collapse expanded directory
             ft.collapseAt(actual_index);
+            // Refresh search results if search is active
+            if (self.input_buffer.items.len > 0) {
+                self.updateSearchResults() catch {};
+            }
         } else if (entry.depth > 0) {
             // Move to parent directory
             self.moveToParent(actual_index);
@@ -624,6 +637,10 @@ pub const App = struct {
                 self.cursor = visible_count - 1;
             }
         }
+        // Refresh search results if search is active
+        if (self.input_buffer.items.len > 0) {
+            self.updateSearchResults() catch {};
+        }
     }
 
     fn expandAll(self: *Self) void {
@@ -642,6 +659,10 @@ pub const App = struct {
                 i += 1;
             }
         }
+        // Refresh search results if search is active
+        if (self.input_buffer.items.len > 0) {
+            self.updateSearchResults() catch {};
+        }
     }
 
     fn toggleCurrentDirectory(self: *Self) !void {
@@ -653,6 +674,10 @@ pub const App = struct {
 
         if (entry.kind == .directory) {
             try ft.toggleExpand(actual_index);
+            // Refresh search results if search is active
+            if (self.input_buffer.items.len > 0) {
+                try self.updateSearchResults();
+            }
         }
     }
 
@@ -811,6 +836,11 @@ pub const App = struct {
                 self.cursor = visible_count - 1;
             }
             self.status_message = "Reloaded";
+
+            // Refresh search results if search is active
+            if (self.input_buffer.items.len > 0) {
+                try self.updateSearchResults();
+            }
         }
     }
 
