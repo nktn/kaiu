@@ -21,14 +21,14 @@ model: sonnet
 | ファイル | 内容 |
 |----------|------|
 | `README.md` | プロジェクト概要、インストール、キーバインド表 |
-| `.claude/rules/architecture.md` | 状態遷移図、InputMode 詳細 |
+| `.claude/rules/architecture.md` | 状態遷移図、AppMode 詳細 |
 
 ## 更新トリガー
 
 以下の変更時にドキュメント更新を検討:
 
 - **新しいキーバインド追加** → README.md, architecture.md
-- **InputMode 追加/変更** → architecture.md 状態遷移図
+- **AppMode 追加/変更** → architecture.md 状態遷移図
 - **新機能追加** → README.md
 - **状態遷移変更** → architecture.md
 
