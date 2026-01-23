@@ -28,13 +28,13 @@ model: opus
 .specify/scripts/bash/check-prerequisites.sh --json --require-tasks
 
 # 出力例:
-# {"FEATURE_DIR":"/path/to/.specify/specs/001-feature","AVAILABLE_DOCS":["spec.md","plan.md"]}
+# {"FEATURE_DIR":"/path/to/repo/specs/001-feature","AVAILABLE_DOCS":[]}
+# 注: spec.md は常に $FEATURE_DIR 直下に存在する前提
 ```
 
 ```
 2. FEATURE_DIR 配下のファイルを読み込み:
-   - $FEATURE_DIR/spec.md (仕様)
-   - AVAILABLE_DOCS に含まれるファイルを使用
+   - $FEATURE_DIR/spec.md (仕様、常に存在)
 
 3. src/**/*.zig を走査 (実装コード)
 4. テストファイルを特定 (test blocks, *_test.zig)

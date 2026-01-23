@@ -22,14 +22,15 @@ tasks.md を読み込み、計画を立て、**ユーザー承認後に**実行�
 .specify/scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks
 
 # 出力例:
-# {"FEATURE_DIR":"/path/to/.specify/specs/001-feature","AVAILABLE_DOCS":["spec.md","plan.md","tasks.md"]}
+# {"FEATURE_DIR":"/path/to/repo/specs/001-feature","AVAILABLE_DOCS":["tasks.md"]}
+# 注: AVAILABLE_DOCS は --include-tasks で tasks.md のみ含まれる
+#     spec.md/plan.md は常に $FEATURE_DIR 直下に存在する前提
 ```
 
 ```
 2. FEATURE_DIR 配下のファイルを読み込み:
-   - $FEATURE_DIR/spec.md (仕様確認)
-   - $FEATURE_DIR/tasks.md (タスクリスト)
-   - AVAILABLE_DOCS に含まれるファイルを使用
+   - $FEATURE_DIR/spec.md (仕様確認、常に存在)
+   - $FEATURE_DIR/tasks.md (タスクリスト、--require-tasks で必須)
 
 3. .claude/rules/architecture.md を読み込み (既存設計)
 ```

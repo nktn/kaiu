@@ -69,7 +69,7 @@ Task(subagent_type: "orchestrator", prompt: "
 現在の feature ブランチに対応するタスクを実行してください。
 
 Phase 1: Planning
-1. check-prerequisites.sh --json --require-tasks --include-tasks を実行
+1. .specify/scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks を実行
 2. FEATURE_DIR から spec.md と tasks.md を読み込み
 3. 実行計画を出力（各タスクで呼び出す Agent を明示）
 4. ユーザー承認を待つ（承認までコードを書かない）

@@ -37,7 +37,7 @@ kaiu 開発における計画から実装までの全体フロー。
 │  │                                                            │ │
 │  │ Phase 2: Execution (承認後)                                │ │
 │  │   ├── 各タスク:                                            │ │
-│  │   │   zig-architect → zig-tdd → zig-build-resolver        │ │
+│  │   │   zig-architect → zig-tdd → (失敗時) build-resolver   │ │
 │  │   │                                                        │ │
 │  │   └── Phase 完了ごと:                                      │ │
 │  │       speckit-impl-verifier (部分検証)                     │ │
@@ -64,9 +64,10 @@ kaiu 開発における計画から実装までの全体フロー。
 
 ### 1. /speckit.specify
 
-機能仕様を作成。
+機能仕様を作成。ブランチも作成される。
 
-**出力**: `.specify/specs/<feature>/spec.md`
+**ブランチ**: `NNN-feature-name` (例: `001-search-feature`)
+**出力**: `$FEATURE_DIR/spec.md`
 
 **内容**:
 - User Stories (US1, US2, ...) + Priority (P1, P2, P3)
@@ -75,11 +76,13 @@ kaiu 開発における計画から実装までの全体フロー。
 - Success Criteria (SC)
 - Out of Scope
 
+**注**: `$FEATURE_DIR` は `check-prerequisites.sh` で取得 (例: `/path/to/repo/specs/001-feature`)
+
 ### 2. /speckit.plan
 
 技術設計を作成。
 
-**出力**: `.specify/specs/<feature>/plan.md`
+**出力**: `$FEATURE_DIR/plan.md`
 
 **内容**:
 - Tech Stack
@@ -91,7 +94,7 @@ kaiu 開発における計画から実装までの全体フロー。
 
 タスクリストを生成。
 
-**出力**: `.specify/tasks/<feature>/tasks.md`
+**出力**: `$FEATURE_DIR/tasks.md`
 
 **内容**:
 - Phase 1: Setup
@@ -117,19 +120,20 @@ kaiu 開発における計画から実装までの全体フロー。
 ### 1. /implement → orchestrator
 
 **Phase 1: Planning**
-- tasks.md を分析
+- `check-prerequisites.sh --json --require-tasks --include-tasks` で FEATURE_DIR を取得
+- `$FEATURE_DIR/spec.md` と `$FEATURE_DIR/tasks.md` を分析
 - 実行計画を出力
 - **ユーザー承認を待つ** (承認までコードを書かない)
 
 **Phase 2: Execution**
 
-各タスクで 3 つの Agent を順番に呼び出し:
+各タスクで Agent を順番に呼び出し:
 
-| Agent | 役割 |
-|-------|------|
-| `zig-architect` | 設計判断、architecture.md 更新 |
-| `zig-tdd` | RED → GREEN → REFACTOR |
-| `zig-build-resolver` | ビルドエラー修正 |
+| Agent | 役割 | 条件 |
+|-------|------|------|
+| `zig-architect` | 設計判断、architecture.md 更新 | 必須 |
+| `zig-tdd` | RED → GREEN → REFACTOR | 必須 |
+| `zig-build-resolver` | ビルドエラー修正 | **ビルド失敗時のみ** |
 
 Phase 完了ごとに `speckit-impl-verifier` で部分検証。
 
@@ -161,7 +165,7 @@ Phase 完了ごとに `speckit-impl-verifier` で部分検証。
 | `orchestrator` | タスク管理・実行制御 | `/implement` 開始時 |
 | `zig-architect` | 設計判断 | 各タスクの最初 |
 | `zig-tdd` | TDD サイクル | 設計判断後 |
-| `zig-build-resolver` | ビルド修正 | TDD 後 |
+| `zig-build-resolver` | ビルド修正 | **ビルド失敗時のみ** |
 | `zig-refactor-cleaner` | リファクタリング | 全タスク完了後 |
 | `speckit-task-verifier` | Task カバレッジ検証 | `/speckit.tasks` 後 |
 | `speckit-impl-verifier` | 実装検証 | Phase 完了後、最終 |

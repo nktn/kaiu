@@ -28,14 +28,14 @@ tasks.md が spec.md の全要件をカバーしているか検証する。
 .specify/scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks
 
 # 出力例:
-# {"FEATURE_DIR":"/path/to/.specify/specs/001-feature","AVAILABLE_DOCS":["spec.md","tasks.md"]}
+# {"FEATURE_DIR":"/path/to/repo/specs/001-feature","AVAILABLE_DOCS":["tasks.md"]}
+# 注: spec.md は常に $FEATURE_DIR 直下に存在する前提
 ```
 
 ```
 2. FEATURE_DIR 配下のファイルを読み込み:
-   - $FEATURE_DIR/spec.md (仕様)
-   - $FEATURE_DIR/tasks.md (タスクリスト)
-   - AVAILABLE_DOCS に含まれるファイルを使用
+   - $FEATURE_DIR/spec.md (仕様、常に存在)
+   - $FEATURE_DIR/tasks.md (タスクリスト、--require-tasks で必須)
 
 3. .specify/memory/constitution.md を読み込み (原則)
 ```
