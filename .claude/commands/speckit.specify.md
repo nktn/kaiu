@@ -72,7 +72,7 @@ Given that feature description, do this:
 
    a. Search for potentially related Issues:
       ```bash
-      # Search by keywords from the feature description
+      # List open issues to find potentially related ones
       gh issue list --state open --json number,title,labels --limit 20
       ```
 
@@ -95,7 +95,7 @@ Given that feature description, do this:
    c. If user selects Issues:
       - Read Issue content: `gh issue view {number} --json body`
       - Extract relevant requirements/ideas to incorporate into the spec
-      - Add `feature` label to selected Issues: `gh issue edit {number} --add-label feature`
+      - Add `feature` label only if Issue has no track label: `gh issue edit {number} --add-label feature` (skip if already has `technical` label)
       - Note: These Issues will be linked in the spec's "Related Issues" section
 
    d. If no related Issues or user skips, continue to next step.

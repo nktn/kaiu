@@ -37,11 +37,15 @@ kaiu 開発における計画から実装までの全体フロー。
     │   - 依存関係を整理
     │
     ▼
+ユーザー承認待ち
+    │   - 「この計画で進めていいですか？」
+    │
+    ▼
 Branch 作成 (未作成の場合)
     │
     ▼
 orchestrator (Issue タスクベース)
-    │   - zig-architect → zig-tdd → build-resolver
+    │   - zig-architect → zig-tdd → zig-build-resolver
     │
     ▼
 zig-refactor-cleaner
@@ -97,7 +101,7 @@ Feature Track との違い:
 
 **実行フロー**:
 1. Issue のタスクを読み込み
-2. タスクごとに: zig-architect → zig-tdd → (失敗時) build-resolver
+2. タスクごとに: zig-architect → zig-tdd → (失敗時) zig-build-resolver
 3. 全タスク完了後: zig-refactor-cleaner
 4. doc-updater
 
