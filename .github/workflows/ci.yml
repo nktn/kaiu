@@ -14,11 +14,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Zig (dev build)
+      - name: Install Zig 0.15.2
         run: |
-          # Fetch latest Zig dev build info
-          ZIG_JSON=$(curl -s https://ziglang.org/download/index.json)
-          ZIG_URL=$(echo "$ZIG_JSON" | jq -r '.master."x86_64-linux".tarball')
+          ZIG_URL="https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz"
           echo "Downloading: $ZIG_URL"
           curl -sL "$ZIG_URL" | tar xJ
           ZIG_DIR=$(ls -d zig-x86_64-linux-*)
@@ -40,11 +38,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Zig (dev build)
+      - name: Install Zig 0.15.2
         run: |
-          # Fetch latest Zig dev build info
-          ZIG_JSON=$(curl -s https://ziglang.org/download/index.json)
-          ZIG_URL=$(echo "$ZIG_JSON" | jq -r '.master."aarch64-macos".tarball')
+          ZIG_URL="https://ziglang.org/download/0.15.2/zig-aarch64-macos-0.15.2.tar.xz"
           echo "Downloading: $ZIG_URL"
           curl -sL "$ZIG_URL" | tar xJ
           ZIG_DIR=$(ls -d zig-aarch64-macos-*)
