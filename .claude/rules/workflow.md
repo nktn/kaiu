@@ -208,6 +208,24 @@ codex レビュー
 
 ユーザーによる動作確認。
 
+**テストファイルの準備**:
+ユーザーが「手動テストしたい」と言ったら、テスト用のファイル/ディレクトリを作成する。
+
+```bash
+# 例: test_files/ にテスト用構造を作成
+mkdir -p test_files/{docs,src/{components,utils},assets}
+echo "test content" > test_files/src/main.zig
+echo "delete me" > test_files/delete_me.txt
+echo "rename me" > test_files/rename_me.txt
+# ... 機能に応じたテストファイル
+```
+
+**テストファイルの内容**:
+- 通常のファイル/ディレクトリ（操作確認用）
+- 隠しファイル（`.` で始まるファイル）
+- 削除/リネーム用のダミーファイル
+- 一括操作用の複数ファイル（bulk1.txt, bulk2.txt, ...）
+
 **確認項目**:
 - 主要機能が期待通り動作するか
 - エッジケースでクラッシュしないか
