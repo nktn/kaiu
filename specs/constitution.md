@@ -37,6 +37,6 @@
 - Memory efficient - handle large directories without issues
 
 ### 6. What kaiu is NOT
-- Not a file manager (no copy/move/delete in MVP)
+- Not a complicated file manager (no directory moves, no file content editing)
 - Not an IDE
 - Not a replacement for proper file management tools
