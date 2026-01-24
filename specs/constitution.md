@@ -37,6 +37,6 @@
 - Memory efficient - handle large directories without issues
 
 ### 6. What kaiu is NOT
-- Not a complicated file manager(not move directory, not not change the contents of the file)
+- Not a complicated file manager (no directory moves, no file content editing)
 - Not an IDE
 - Not a replacement for proper file management tools
