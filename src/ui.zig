@@ -35,6 +35,7 @@ pub fn renderTree(
     show_hidden: bool,
     search_query: ?[]const u8,
     search_matches: []const usize,
+    marked_files: *const std.StringHashMap(void),
     arena: std.mem.Allocator,
 ) !void {
     const height = win.height;
@@ -55,12 +56,13 @@ pub fn renderTree(
         if (row >= height) break;
 
         const is_cursor = visible_index == cursor;
+        const is_marked = marked_files.contains(entry.path);
         // Only pass search_query if this entry is in search_matches (O(n) but matches are few)
         const entry_query: ?[]const u8 = if (search_query != null and isInMatches(actual_index, search_matches))
             search_query
         else
             null;
-        try renderEntry(win, entry, row, is_cursor, entry_query, arena);
+        try renderEntry(win, entry, row, is_cursor, is_marked, entry_query, arena);
 
         row += 1;
         visible_index += 1;
@@ -82,6 +84,7 @@ fn renderEntry(
     entry: tree.FileEntry,
     row: u16,
     is_cursor: bool,
+    is_marked: bool,
     search_query: ?[]const u8,
     arena: std.mem.Allocator,
 ) !void {
@@ -89,6 +92,17 @@ fn renderEntry(
 
     // Sanitize filename for safe display (prevents terminal escape injection)
     const safe_name = try sanitizeForDisplay(arena, entry.name);
+
+    // Mark indicator (before cursor)
+    if (is_marked) {
+        _ = win.printSegment(.{
+            .text = "*",
+            .style = .{ .fg = .{ .index = 5 }, .bold = true }, // magenta
+        }, .{ .row_offset = row, .col_offset = col });
+    } else {
+        _ = win.printSegment(.{ .text = " " }, .{ .row_offset = row, .col_offset = col });
+    }
+    col += 1;
 
     // Cursor indicator
     if (is_cursor) {
@@ -298,7 +312,7 @@ pub fn renderHelp(win: vaxis.Window) !void {
 
     // Center the help box
     const box_width: u16 = @min(60, width - 4);
-    const box_height: u16 = @min(20, height - 4);
+    const box_height: u16 = @min(30, height - 4);
     const start_col: u16 = (width - box_width) / 2;
     const start_row: u16 = (height - box_height) / 2;
 
@@ -356,6 +370,35 @@ pub fn renderHelp(win: vaxis.Window) !void {
     };
 
     for (search_keys) |kv| {
+        _ = win.printSegment(.{
+            .text = kv[0],
+            .style = .{ .fg = .{ .index = 3 } },
+        }, .{ .row_offset = row, .col_offset = start_col + 2 });
+        _ = win.printSegment(.{
+            .text = kv[1],
+        }, .{ .row_offset = row, .col_offset = start_col + 12 });
+        row += 1;
+    }
+
+    row += 1;
+
+    // File Operations section
+    _ = win.printSegment(.{
+        .text = "File Operations",
+        .style = .{ .bold = true, .fg = .{ .index = 4 } },
+    }, .{ .row_offset = row, .col_offset = start_col });
+    row += 1;
+
+    const file_keys = [_][2][]const u8{
+        .{ "Space", "Mark/Unmark" },
+        .{ "y/d", "Yank/Cut" },
+        .{ "p", "Paste" },
+        .{ "D", "Delete" },
+        .{ "r", "Rename" },
+        .{ "a/A", "New file/dir" },
+    };
+
+    for (file_keys) |kv| {
         _ = win.printSegment(.{
             .text = kv[0],
             .style = .{ .fg = .{ .index = 3 } },
