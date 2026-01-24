@@ -20,22 +20,22 @@ $ARGUMENTS
 │  orchestrator (タスク管理 Agent)                             │
 │                                                             │
 │  Phase 1: Planning                                          │
-│  ├── specs/*.md 確認                                        │
+│  ├── check-prerequisites.sh → FEATURE_DIR/spec.md 確認       │
 │  ├── 計画出力（各タスクの Agent 呼び出しを明示）               │
 │  └── ユーザー承認待ち ← **承認までコードを書かない**           │
 │                                                             │
 │  Phase 2: Execution (承認後)                                │
-│  │  各タスクに対して以下の Agent を順番に実行:                │
+│  │  各タスクに対して Agent を実行:                            │
 │  │  ┌─────────────┐   ┌─────────────┐   ┌─────────────────┐│
 │  │  │zig-architect│ → │  zig-tdd    │ → │zig-build-resolver││
-│  │  │ 設計判断     │   │ RED→GREEN  │   │ ビルド確認       ││
+│  │  │ 設計判断     │   │ RED→GREEN  │   │ (失敗時のみ)     ││
 │  │  └─────────────┘   └─────────────┘   └─────────────────┘│
 │  │                                                          │
 │  Phase 3: Completion                                        │
-│  │  ┌─────────────────────┐                                 │
-│  │  │zig-refactor-cleaner │                                 │
-│  │  │ リファクタリング      │                                 │
-│  │  └─────────────────────┘                                 │
+│  │  ┌─────────────────────┐   ┌─────────────────────┐      │
+│  │  │zig-refactor-cleaner │ → │speckit-impl-verifier│      │
+│  │  │ リファクタリング      │   │ 最終検証            │      │
+│  │  └─────────────────────┘   └─────────────────────┘      │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -43,11 +43,20 @@ $ARGUMENTS
 
 ## Execution Steps
 
-### Step 1: Setup
+### Step 1: ブランチ確認
+
+**前提**: `/speckit.specify` で feature ブランチが既に作成されている。
 
 ```bash
-git checkout -b feat/<feature-name>
+# 現在のブランチを確認
+git branch --show-current
+# 期待されるパターン: NNN-feature-name (例: 001-search-feature)
+# speckit スクリプトがこのパターンを期待 (3桁の数字プレフィックス)
 ```
+
+**注意**: `/implement` は独自にブランチを作成しない。
+- `/speckit.specify` → `/speckit.plan` → `/speckit.tasks` フローでブランチが作成済み
+- 独立フローで使用する場合は、先に手動でブランチを作成すること
 
 ---
 
@@ -57,21 +66,23 @@ git checkout -b feat/<feature-name>
 
 ```
 Task(subagent_type: "orchestrator", prompt: "
-.specify/tasks/ 配下のタスクを実行してください。
+現在の feature ブランチに対応するタスクを実行してください。
 
 Phase 1: Planning
-1. .specify/specs/*.md を確認
-2. 実行計画を出力（各タスクで呼び出す Agent を明示）
-3. ユーザー承認を待つ（承認までコードを書かない）
+1. .specify/scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks を実行
+2. FEATURE_DIR から spec.md と tasks.md を読み込み
+3. 実行計画を出力（各タスクで呼び出す Agent を明示）
+4. ユーザー承認を待つ（承認までコードを書かない）
 
 Phase 2: Execution (承認後)
-各タスクで以下の Agent を必ず呼び出す:
+各タスクで以下の Agent を順番に呼び出す:
 - zig-architect
 - zig-tdd
-- zig-build-resolver
+- (ビルド失敗時のみ) zig-build-resolver
 
 Phase 3: Completion
 - zig-refactor-cleaner
+- speckit-impl-verifier (最終検証)
 ")
 ```
 
@@ -83,7 +94,7 @@ Phase 3: Completion
 === 実行計画 ===
 
 ■ 関連 Spec
-- specs/*.md (該当する spec を列挙)
+- $FEATURE_DIR/spec.md (check-prerequisites.sh で取得)
 
 ■ タスク一覧と Agent 呼び出し
 
@@ -91,18 +102,19 @@ Task 1.1: Project Setup
   ├── 変更ファイル: build.zig, build.zig.zon
   ├── 変更内容: プロジェクト初期化
   ├── 影響範囲: なし
-  └── Agent: zig-architect → zig-tdd → zig-build-resolver
+  └── Agent: zig-architect → zig-tdd → (失敗時) zig-build-resolver
 
 Task 1.2: Directory Reading
   ├── 変更ファイル: src/tree.zig
   ├── 変更内容: FileTree 実装
   ├── 影響範囲: なし
-  └── Agent: zig-architect → zig-tdd → zig-build-resolver
+  └── Agent: zig-architect → zig-tdd → (失敗時) zig-build-resolver
 
 ... (全タスク)
 
 ■ 全タスク完了後
-  └── zig-refactor-cleaner
+  ├── zig-refactor-cleaner
+  └── speckit-impl-verifier (最終検証)
 
 === この計画で進めていいですか？ ===
 ```
@@ -140,13 +152,21 @@ TDD サイクルを実行:
 ")
 ```
 
-#### 3. zig-build-resolver
+#### 3. zig-build-resolver (CONDITIONAL)
+
+**zig build 失敗時のみ呼び出す:**
 
 ```
-Task(subagent_type: "zig-build-resolver", prompt: "
-zig build と zig build test を実行。
-エラーがあれば修正、なければ「ビルド成功」と報告。
-")
+# TDD 後にビルド確認
+zig build && zig build test
+
+# エラーがある場合のみ呼び出し
+if (build_failed) {
+    Task(subagent_type: "zig-build-resolver", prompt: "
+    zig build でエラーが発生しました。
+    エラー内容を分析し、最小限の修正で解決してください。
+    ")
+}
 ```
 
 #### 4. タスク完了マーク
@@ -181,15 +201,37 @@ Task(subagent_type: "zig-refactor-cleaner", prompt: "
 - [ ] architecture.md に設計判断が記録されている
 - [ ] `zig build` 成功
 - [ ] `zig build test` 成功
+- [ ] `/speckit.impl-verify` で実装検証 PASS
 
 ---
 
 ## Post-Implementation
 
+### 1. 実装検証 (RECOMMENDED)
+
+```
+/speckit.impl-verify
+```
+
+spec.md の要件が実装されているか最終確認。
+ギャップがあれば追加タスクを提案。
+
+### 2. ドキュメント更新 & パターン学習
+
+```
+Task(subagent_type: "doc-updater", prompt: "
+実装完了後の処理:
+1. ドキュメント更新 (README.md, architecture.md)
+2. セッションからパターン抽出・保存
+")
+```
+
+### 3. コミット & PR
+
 ```bash
 git add <files>
 git commit -m "feat: <description>"
-git push -u origin feat/<feature-name>
+git push  # speckit フローでブランチは既に作成・push 済み
 ```
 
 ```
@@ -206,10 +248,12 @@ git push -u origin feat/<feature-name>
 | `orchestrator` | タスク管理、計画立案、承認待ち | 最初に呼び出し |
 | `zig-architect` | 設計判断、architecture.md 更新 | 各タスクの最初 |
 | `zig-tdd` | TDD サイクル (RED→GREEN) | 設計判断後 |
-| `zig-build-resolver` | ビルド確認/修正 | TDD 後 |
+| `zig-build-resolver` | ビルドエラー修正 | ビルド失敗時のみ |
 | `zig-refactor-cleaner` | リファクタリング | 全タスク完了後 |
+| `speckit-impl-verifier` | 実装検証 | Phase 完了後、最終 |
+| `doc-updater` | ドキュメント更新 | 検証 PASS 後 |
 
-**すべての Agent は MANDATORY（必須）。スキップしない。**
+**注意**: `zig-build-resolver` はビルド失敗時のみ呼び出し。他は必須。
 
 ---
 

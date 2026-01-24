@@ -15,11 +15,27 @@ tasks.md を読み込み、計画を立て、**ユーザー承認後に**実行�
 
 ### 1.1 コンテキスト読み込み
 
+**重要: check-prerequisites.sh を使用して spec/tasks を特定する**
+
+```bash
+# 1. check-prerequisites.sh を実行して FEATURE_DIR を取得
+.specify/scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks
+
+# 出力例:
+# {"FEATURE_DIR":"/path/to/repo/specs/001-feature","AVAILABLE_DOCS":["tasks.md"]}
+# 注: AVAILABLE_DOCS は --include-tasks で tasks.md のみ含まれる
+#     spec.md/plan.md は常に $FEATURE_DIR 直下に存在する前提
 ```
-1. .specify/specs/*.md を読み込み (仕様確認)
-2. .specify/tasks/*.md を読み込み (タスクリスト)
+
+```
+2. FEATURE_DIR 配下のファイルを読み込み:
+   - $FEATURE_DIR/spec.md (仕様確認、常に存在)
+   - $FEATURE_DIR/tasks.md (タスクリスト、--require-tasks で必須)
+
 3. .claude/rules/architecture.md を読み込み (既存設計)
 ```
+
+**注意**: ブランチ名は `NNN-feature-name` パターン (例: `001-search-feature`) である必要がある。
 
 ### 1.2 依存関係分析
 
@@ -33,7 +49,7 @@ tasks.md を読み込み、計画を立て、**ユーザー承認後に**実行�
 === 実行計画 ===
 
 ■ 関連 Spec
-- specs/*.md (該当する spec を列挙)
+- $FEATURE_DIR/spec.md (check-prerequisites.sh で取得)
 
 ■ タスク一覧と Agent 呼び出し
 
@@ -44,7 +60,7 @@ Task 1.1: Project Setup
   └── Agent 呼び出し:
       1. zig-architect → 設計判断
       2. zig-tdd → テスト作成 → 実装
-      3. zig-build-resolver → ビルド確認
+      3. (ビルド失敗時のみ) zig-build-resolver
 
 Task 1.2: Directory Reading
   ├── 変更ファイル: src/tree.zig
@@ -53,7 +69,7 @@ Task 1.2: Directory Reading
   └── Agent 呼び出し:
       1. zig-architect → 設計判断
       2. zig-tdd → テスト作成 → 実装
-      3. zig-build-resolver → ビルド確認
+      3. (ビルド失敗時のみ) zig-build-resolver
 
 ... (全タスク)
 
@@ -86,7 +102,7 @@ AskUserQuestion(
 
 ### 2.1 各タスクの実行
 
-**各タスクに対して、以下の 3 つの Agent を必ず順番に呼び出す:**
+**各タスクに対して、以下の Agent を順番に呼び出す:**
 
 #### Step 1: zig-architect (MANDATORY)
 
@@ -113,14 +129,24 @@ TDD サイクルを実行:
 ")
 ```
 
-#### Step 3: zig-build-resolver (MANDATORY)
+#### Step 3: zig-build-resolver (CONDITIONAL)
+
+**zig build 失敗時のみ呼び出す:**
 
 ```
-Task(subagent_type: "zig-build-resolver", prompt: "
-zig build と zig build test を実行。
-エラーがあれば修正、なければ「ビルド成功」と報告。
-")
+# TDD 後にビルド確認
+zig build && zig build test
+
+# エラーがある場合のみ呼び出し
+if (build_failed) {
+    Task(subagent_type: "zig-build-resolver", prompt: "
+    zig build でエラーが発生しました。
+    エラー内容を分析し、最小限の修正で解決してください。
+    ")
+}
 ```
+
+**注意**: ビルド成功時は呼び出さない。
 
 #### Step 4: タスク完了マーク
 
@@ -135,12 +161,29 @@ tasks.md を更新:
 [1/9] Task 1.1: Project Setup
   → zig-architect: 設計判断完了 ✓
   → zig-tdd: RED → GREEN 完了 ✓
-  → zig-build-resolver: ビルド成功 ✓
+  → ビルド確認: 成功 ✓
   → COMPLETED ✓
 
 [2/9] Task 1.2: Directory Reading
   → zig-architect: 実行中...
 ```
+
+### 2.3 Phase 完了ごとの部分検証 (RECOMMENDED)
+
+各 Phase 完了時に speckit-impl-verifier で部分検証を実行:
+
+```
+Task(subagent_type: "speckit-impl-verifier", prompt: "
+Phase N 完了の部分検証を実行:
+--phase=N --story=USx
+
+この Phase で実装した User Story の要件を満たしているか確認。
+")
+```
+
+**部分検証の結果:**
+- **PASS** → 次の Phase へ進む
+- **GAP あり** → ユーザーに報告、追加タスクを提案
 
 ---
 
@@ -159,7 +202,34 @@ Task(subagent_type: "zig-refactor-cleaner", prompt: "
 ")
 ```
 
-### 3.2 完了レポート
+### 3.2 speckit-impl-verifier (MANDATORY)
+
+```
+Task(subagent_type: "speckit-impl-verifier", prompt: "
+実装完了後の検証を実行:
+1. 全 Functional Requirements の実装確認
+2. Acceptance Scenarios のコードパス確認
+3. Success Criteria の検証可能性確認
+4. Out of Scope 機能が実装されていないか確認
+5. テストカバレッジの分析
+
+検証レポートを出力し、ギャップがあれば追加タスクを提案。
+")
+```
+
+**検証結果に応じた対応:**
+
+```
+[検証 PASS]
+  → 3.3 完了レポートへ進む
+
+[検証 FAIL - CRITICAL ギャップあり]
+  → ユーザーに報告
+  → 追加タスクの提案
+  → ユーザー承認後、Phase 2 へ戻る
+```
+
+### 3.3 完了レポート
 
 ```
 === 実行完了 ===
@@ -168,6 +238,7 @@ Task(subagent_type: "zig-refactor-cleaner", prompt: "
 作成ファイル: 4
 テスト: 15 passing
 設計判断: 5 件 (architecture.md に記録)
+実装検証: PASS (0 CRITICAL, 2 WARNINGS)
 
 次のステップ:
 - git commit
@@ -202,7 +273,8 @@ Task 1.3 failed: [エラー内容]
 |-------|------------------|------|
 | `zig-architect` | 各タスクの最初 | 設計判断、architecture.md 更新 |
 | `zig-tdd` | 設計判断後 | TDD サイクル (RED→GREEN) |
-| `zig-build-resolver` | TDD 後 | ビルドエラー修正 |
+| `zig-build-resolver` | ビルド失敗時のみ | ビルドエラー修正 |
 | `zig-refactor-cleaner` | 全タスク完了後 | リファクタリング |
+| `speckit-impl-verifier` | Phase 完了後、最終 | 実装検証、ギャップ検出 |
 
-**注意: すべての Agent は MANDATORY（必須）。スキップしない。**
+**注意**: `zig-build-resolver` はビルド失敗時のみ呼び出し。他の Agent は必須。

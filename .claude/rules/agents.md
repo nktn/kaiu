@@ -13,6 +13,9 @@ Agent の使い分けと実行戦略。
 | `zig-tdd` | RED → GREEN → REFACTOR | 各タスク実装時 |
 | `zig-build-resolver` | コンパイルエラー修正 | `zig build` 失敗時 |
 | `zig-refactor-cleaner` | 未使用コード削除・クリーンアップ | 全タスク完了後 |
+| `speckit-task-verifier` | Task カバレッジ検証 | `/speckit.tasks` 後、実装前 |
+| `speckit-impl-verifier` | 実装検証・ギャップ検出 | Phase 完了後、全タスク完了後 |
+| `doc-updater` | ドキュメント同期・パターン学習 | 実装検証 PASS 後 |
 
 ## Available Skills
 
@@ -34,7 +37,10 @@ Agent の使い分けと実行戦略。
 | struct 設計・メモリ戦略 | `zig-architect` |
 | 実装タスク | `zig-tdd` |
 | `zig build` エラー | `zig-build-resolver` |
-| 全タスク完了後 | `zig-refactor-cleaner` |
+| `/speckit.tasks` 後、実装前 | `speckit-task-verifier` |
+| Phase 完了後 | `speckit-impl-verifier` (部分検証) |
+| 全タスク完了後 | `zig-refactor-cleaner` → `speckit-impl-verifier` |
+| 実装検証 PASS 後 | `doc-updater` (ドキュメント更新 + パターン学習) |
 | PR 後のレビュー | `codex` (skill) |
 
 ### zig-architect Triggers
@@ -87,6 +93,59 @@ Agent の使い分けと実行戦略。
 
 **原則**: テストが通る状態を維持、RISKY な変更はしない
 
+### speckit-task-verifier Triggers
+
+`/speckit.tasks` 完了後、実装前に実行:
+
+```
+- User Story 単位のカバレッジ検証
+- Acceptance Criteria のタスクマッピング確認
+- Priority 整合性チェック (P1 が早い Phase にあるか)
+- Constitution 原則との整合性確認
+```
+
+**出力**: Coverage Matrix、Gap List、追加タスク提案
+
+### speckit-impl-verifier Triggers
+
+以下のタイミングで実行:
+
+```
+- Phase 完了後 (部分検証): --phase=N --story=USn
+- 全タスク完了後 (最終検証): 引数なし
+```
+
+**検証項目**:
+- Functional Requirements の実装確認
+- Acceptance Scenarios のコードパス存在確認
+- Success Criteria の検証可能性確認
+- Out of Scope 機能が実装されていないか確認
+- テストカバレッジ分析
+
+**出力**: Implementation Status Matrix、Missing List、追加タスク提案
+
+### doc-updater Triggers
+
+実装検証 PASS 後に実行:
+
+```
+- ドキュメント更新 (README.md, architecture.md, CLAUDE.md)
+- セッションからのパターン抽出・保存
+```
+
+**ドキュメント更新対象**:
+- キーバインド追加/変更 → README.md, architecture.md
+- AppMode 追加/変更 → architecture.md 状態遷移図
+- 新機能追加 → README.md
+
+**パターン学習対象**:
+- 非自明なエラー解決
+- libvaxis 使用パターン
+- build.zig パターン
+- メモリ管理戦略
+
+**出力**: 更新レポート、`.claude/skills/learned/` にパターン保存
+
 ## Execution Strategy
 
 ### Parallel Execution (並行実行)
@@ -126,42 +185,60 @@ fn canRunParallel(taskA: Task, taskB: Task) bool {
 
 ## Multi-Agent Collaboration
 
-### 実装フロー
+### 計画フェーズ (spec/task 作成)
 
 ```
-orchestrator
-    │
-    ├── タスク分析
-    │
-    ├── Task A ──→ zig-architect (設計判断)
-    │                   │
-    │                   ▼
-    │              architecture.md 更新
-    │                   │
-    │                   ▼
-    │              zig-tdd (実装)
-    │                   │
-    │                   ├── [エラー] → zig-build-resolver
-    │                   │
-    │                   ▼
-    │              完了
-    │
-    ├── Task B ──→ zig-tdd (並行)
+/speckit.specify
     │
     ▼
-   全タスク完了
+/speckit.plan
     │
     ▼
-  zig-refactor-cleaner (クリーンアップ)
+/speckit.tasks
     │
     ▼
-  /learn (パターン保存)
+/speckit.task-verify (カバレッジ検証)
+    │
+    ├── [GAP あり] → /speckit.tasks で追加 → 再検証
+    │
+    ▼ [PASS]
+tasks.md 完成 (計画フェーズ終了)
+```
+
+### 実装フェーズ (別セッション/別タイミング)
+
+```
+/implement
     │
     ▼
-   /pr
+┌─────────────────────────────────────────────────────────┐
+│ orchestrator                                            │
+│                                                         │
+│ Phase 1: Planning                                       │
+│   └── タスク分析 → ユーザー承認待ち                       │
+│                                                         │
+│ Phase 2: Execution (承認後)                             │
+│   ├── Task A ──→ zig-architect → zig-tdd               │
+│   │                  │                                  │
+│   │                  └── [エラー] → zig-build-resolver  │
+│   │                                                     │
+│   ├── Task B ──→ zig-tdd (並行可能なら)                 │
+│   │                                                     │
+│   ├── Phase完了 ──→ speckit-impl-verifier (部分検証)   │
+│   │                      │                              │
+│   │                      └── [GAP] → 追加タスク         │
+│   ▼                                                     │
+│ Phase 3: Completion                                     │
+│   ├── zig-refactor-cleaner (クリーンアップ)             │
+│   └── speckit-impl-verifier (最終検証)                  │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+    │
+    ▼ [検証 PASS]
+  doc-updater (ドキュメント更新 + パターン学習)
     │
     ▼
-  /codex (レビュー)
+   /pr → /codex
 ```
 
 ### 設計判断の記録
