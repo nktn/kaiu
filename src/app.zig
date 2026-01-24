@@ -1521,6 +1521,10 @@ pub const App = struct {
             } else {
                 self.status_message = "Deleted";
             }
+            // If no undo entries were added (all symlinks), clear undo state
+            if (self.undo_state.entries.items.len == 0) {
+                self.undo_state.operation = .none;
+            }
             try self.reloadTree();
         } else {
             // All deletions failed - clear undo state
@@ -1704,12 +1708,27 @@ pub const App = struct {
                 }
             },
             .move => {
-                // Move files back to original location
+                // Move files back to original location with cross-device fallback
                 for (self.undo_state.entries.items) |entry| {
-                    std.fs.cwd().rename(entry.dest_path, entry.src_path) catch {
-                        continue;
+                    const restored = blk: {
+                        std.fs.cwd().rename(entry.dest_path, entry.src_path) catch |err| {
+                            // Cross-device fallback: copy + delete
+                            if (err == error.RenameAcrossMountPoints) {
+                                const stat = std.fs.cwd().statFile(entry.dest_path) catch break :blk false;
+                                if (stat.kind == .directory) {
+                                    copyDirRecursiveSafe(entry.dest_path, entry.src_path) catch break :blk false;
+                                    std.fs.cwd().deleteTree(entry.dest_path) catch {};
+                                } else {
+                                    std.fs.cwd().copyFile(entry.dest_path, std.fs.cwd(), entry.src_path, .{}) catch break :blk false;
+                                    std.fs.cwd().deleteFile(entry.dest_path) catch {};
+                                }
+                            } else {
+                                break :blk false;
+                            }
+                        };
+                        break :blk true;
                     };
-                    success_count += 1;
+                    if (restored) success_count += 1;
                 }
                 if (success_count == total_count) {
                     self.status_message = "Undone: move";
@@ -2057,9 +2076,17 @@ fn isBinaryContent(content: []const u8) bool {
     return false;
 }
 
-/// Copy a directory recursively
+/// Copy a directory recursively with symlink safety
+/// Symlinks are skipped to prevent following links outside the intended tree
 /// Returns error if any file copy fails (to prevent data loss on cut operations)
 fn copyDirRecursive(src_path: []const u8, dest_path: []const u8) !void {
+    // Security: Check if source is a symlink
+    var link_buf: [std.fs.max_path_bytes]u8 = undefined;
+    if (std.fs.cwd().readLink(src_path, &link_buf)) |_| {
+        // Skip symlinks during copy
+        return;
+    } else |_| {}
+
     // Create destination directory
     std.fs.cwd().makeDir(dest_path) catch |err| {
         if (err != error.PathAlreadyExists) return err;
@@ -2074,12 +2101,18 @@ fn copyDirRecursive(src_path: []const u8, dest_path: []const u8) !void {
     var fba = std.heap.FixedBufferAllocator.init(&buf);
     const allocator = fba.allocator();
 
-    // Iterate and copy - propagate errors to prevent partial copy + delete
+    // Iterate and copy with symlink checks - propagate errors to prevent partial copy + delete
     var iter = src_dir.iterate();
     while (try iter.next()) |entry| {
         fba.reset();
         const src_child = try std.fs.path.join(allocator, &.{ src_path, entry.name });
         const dest_child = try std.fs.path.join(allocator, &.{ dest_path, entry.name });
+
+        // Check for symlink before processing
+        if (std.fs.cwd().readLink(src_child, &link_buf)) |_| {
+            // Skip symlinks
+            continue;
+        } else |_| {}
 
         if (entry.kind == .directory) {
             try copyDirRecursive(src_child, dest_child);
