@@ -95,7 +95,7 @@ Given that feature description, do this:
    c. If user selects Issues:
       - Read Issue content: `gh issue view {number} --json body`
       - Extract relevant requirements/ideas to incorporate into the spec
-      - Add `feature` label only if Issue has no track label: `gh issue edit {number} --add-label feature` (skip if already has `technical` label)
+      - Add `feature` label only if Issue has no track label: `gh issue edit {number} --add-label feature` (skip if already has `feature` or `technical` label)
       - Note: These Issues will be linked in the spec's "Related Issues" section
 
    d. If no related Issues or user skips, continue to next step.
