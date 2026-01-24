@@ -21,6 +21,7 @@ model: sonnet
 | ファイル | 内容 |
 |----------|------|
 | `README.md` | プロジェクト概要、インストール、キーバインド表 |
+| `CLAUDE.md` | AI エージェント向けプロジェクト概要 |
 | `.claude/rules/architecture.md` | 状態遷移図、AppMode 詳細 |
 | `.claude/rules/workflow.md` | 計画〜実装の全体フロー、Agent/コマンド一覧 |
 
@@ -85,26 +86,26 @@ stateDiagram-v2
 - **簡潔に**: 冗長な説明を避ける
 - **更新日を残す**: 必要に応じて更新日を記載
 
-## architecture.md と learned/ の分離
+## architecture.md と `.claude/skills/learned/` の分離
 
 **役割分担**:
 | ファイル | 役割 | 内容 |
 |---------|------|------|
-| `architecture.md` | kaiu 固有の設計決定 | 「何を決めたか」+ learned/ への参照 |
-| `learned/` | 汎用パターン | 「なぜそうなのか」（他プロジェクトでも使える知識） |
+| `architecture.md` | kaiu 固有の設計決定 | 「何を決めたか」+ `.claude/skills/learned/` への参照 |
+| `.claude/skills/learned/` | 汎用パターン | 「なぜそうなのか」（他プロジェクトでも使える知識） |
 
 **分離の判断基準**:
 - **architecture.md に書く**: kaiu 特有の決定、実装詳細
-- **learned/ に書く**: 他プロジェクトでも適用可能な知識、業界慣例
+- **`.claude/skills/learned/` に書く**: 他プロジェクトでも適用可能な知識、業界慣例
 
-**参照形式** (architecture.md → learned/):
+**参照形式** (architecture.md → `.claude/skills/learned/`):
 ```markdown
-**Rationale**: See `learned/tui-file-explorer-conventions.md`
+**Rationale**: See `.claude/skills/learned/tui-file-explorer-conventions.md`
 ```
 
 **例**:
 - 「undo 機能を削除」という決定 → architecture.md
-- 「TUI ファイルエクスプローラーは一般的に undo を持たない」という知識 → learned/
+- 「TUI ファイルエクスプローラーは一般的に undo を持たない」という知識 → `.claude/skills/learned/`
 
 ---
 

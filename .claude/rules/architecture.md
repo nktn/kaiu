@@ -286,16 +286,16 @@ pub const App = struct {
 
 **役割分担**:
 - **architecture.md**: kaiu 固有の設計決定 (「何を決めたか」)
-- **learned/**: 汎用パターン (「なぜそうなのか」- 他プロジェクトでも使える知識)
+- **`.claude/skills/learned/`**: 汎用パターン (「なぜそうなのか」- 他プロジェクトでも使える知識)
 
-**参照形式**: 汎用的な Rationale は learned/ に分離し、参照で記載:
+**参照形式**: 汎用的な Rationale は `.claude/skills/learned/` に分離し、参照で記載:
 ```markdown
-**Rationale**: See `learned/[pattern-name].md`
+**Rationale**: See `.claude/skills/learned/[pattern-name].md`
 ```
 
 **判断基準**:
 - kaiu 特有の決定 → ここに詳細を記載
-- 他プロジェクトでも適用可能な知識 → learned/ に保存して参照
+- 他プロジェクトでも適用可能な知識 → `.claude/skills/learned/` に保存して参照
 
 ### [2026-01-22] FileTree Memory Strategy
 **Context**: FileTree のノード群にメモリ割り当て戦略が必要
@@ -446,13 +446,10 @@ CLI arg     main.zig              FileTree            Status Bar
 ```
 
 ### [2026-01-24] Undo機能を削除
-**Context**: 一般的なTUIファイルエクスプローラー (ranger, lf, nnn) はundo機能を持たない
+**Context**: undo 機能の要否を検討
 **Decision**: undo機能 (US7, FR-032-FR-037) を削除し、削除確認ダイアログに依存する
-**Rationale**:
-- 典型的なファイルエクスプローラーの慣例に従う
-- 削除確認ダイアログで誤操作を防止
-- コードの複雑さを軽減
-- シンボリックリンク処理の問題も解消
+**Rationale**: See `.claude/skills/learned/tui-file-explorer-conventions.md`
+**Note**: コードの複雑さ軽減、シンボリックリンク処理の問題解消も副次的なメリット
 
 ---
 
