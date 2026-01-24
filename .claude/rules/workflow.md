@@ -32,9 +32,9 @@ kaiu 開発における計画から実装までの全体フロー。
     │   - 関連する他の Issue も確認
     │
     ▼
-タスクを整理・作成
-    │   - Issue の「タスク」セクションを更新
-    │   - 依存関係を整理
+specs/technical/{issue}-{name}/ を作成
+    │   ├── plan.md (方針・設計)
+    │   └── tasks.md (タスクリスト)
     │
     ▼
 ユーザー承認待ち
@@ -44,7 +44,7 @@ kaiu 開発における計画から実装までの全体フロー。
 Branch 作成 (未作成の場合)
     │
     ▼
-orchestrator (Issue タスクベース)
+orchestrator (tasks.md ベース)
     │   - zig-architect → zig-tdd → zig-build-resolver
     │
     ▼
@@ -71,7 +71,9 @@ Issue も自動クローズ
 
 **実行内容**:
 1. 関連 Issue を収集・分析
-2. タスクを整理し Issue の「タスク」セクションに書き込み
+2. `specs/technical/{issue}-{name}/` を作成
+   - plan.md (方針・設計)
+   - tasks.md (タスクリスト)
 3. Branch を作成 (`technical/{issue-number}-{short-description}`)
 4. orchestrator を起動
 
@@ -95,12 +97,13 @@ Issue も自動クローズ
 ### orchestrator (Technical Track)
 
 Feature Track との違い:
-- spec.md ではなく Issue の「タスク」セクションを参照
+- spec.md ではなく Issue が仕様書の役割
+- plan.md と tasks.md は `specs/technical/` に作成
 - speckit-impl-verifier をスキップ
 - speckit-task-verifier をスキップ
 
 **実行フロー**:
-1. Issue のタスクを読み込み
+1. `specs/technical/{issue}-{name}/tasks.md` を読み込み
 2. タスクごとに: zig-architect → zig-tdd → (失敗時) zig-build-resolver
 3. 全タスク完了後: zig-refactor-cleaner
 4. doc-updater
