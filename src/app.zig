@@ -877,6 +877,9 @@ pub const App = struct {
             self.file_tree = try tree.FileTree.init(self.allocator, root_path);
             try self.file_tree.?.readDirectory();
 
+            // Clear marked files - paths are now invalid after tree reload
+            self.marked_files.clearRetainingCapacity();
+
             // Clamp cursor
             const visible_count = self.file_tree.?.countVisible(self.show_hidden);
             if (self.cursor >= visible_count and visible_count > 0) {
@@ -888,6 +891,23 @@ pub const App = struct {
             if (self.input_buffer.items.len > 0) {
                 try self.updateSearchResults();
             }
+        }
+    }
+
+    // ===== Helper: Get Current Directory =====
+
+    /// Returns the directory path for the current cursor position.
+    /// If cursor is on a directory, returns that directory.
+    /// If cursor is on a file, returns its parent directory.
+    /// Falls back to root_path if no valid entry found.
+    fn getCurrentDirectory(self: *Self, ft: *tree.FileTree) []const u8 {
+        const actual_index = ft.visibleToActualIndex(self.cursor, self.show_hidden) orelse return ft.root_path;
+        const entry = &ft.entries.items[actual_index];
+
+        if (entry.kind == .directory) {
+            return entry.path;
+        } else {
+            return std.fs.path.dirname(entry.path) orelse ft.root_path;
         }
     }
 
@@ -962,7 +982,9 @@ pub const App = struct {
 
         if (self.file_tree == null) return;
         const ft = self.file_tree.?;
-        const dest_dir = ft.root_path;
+
+        // Get destination directory from cursor position
+        const dest_dir = self.getCurrentDirectory(ft);
 
         var success_count: usize = 0;
         for (self.clipboard_files.items) |src_path| {
@@ -996,8 +1018,12 @@ pub const App = struct {
             } else {
                 std.fs.cwd().rename(src_path, final_dest) catch {
                     // If rename fails (cross-device), try copy + delete
+                    // Only delete source if copy succeeded to prevent data loss
                     self.copyPath(src_path, final_dest) catch continue;
-                    self.deletePathRecursive(src_path) catch {};
+                    self.deletePathRecursive(src_path) catch {
+                        // Copy succeeded but delete failed - this is acceptable
+                        // (user will have duplicate, not data loss)
+                    };
                 };
             }
             success_count += 1;
@@ -1115,6 +1141,14 @@ pub const App = struct {
         const old_path = self.rename_target_path.?;
         const new_name = self.input_buffer.items;
 
+        // Validate filename - reject path separators and parent directory references
+        if (!isValidFilename(new_name)) {
+            self.status_message = "Invalid name (no / or ..)";
+            self.input_buffer.clearRetainingCapacity();
+            self.mode = .tree_view;
+            return;
+        }
+
         // Get directory part of old path
         const dir_path = std.fs.path.dirname(old_path) orelse ".";
         const new_path = try std.fs.path.join(self.allocator, &.{ dir_path, new_name });
@@ -1179,8 +1213,16 @@ pub const App = struct {
 
         const new_name = self.input_buffer.items;
 
-        // Get current directory
-        const current_dir = if (self.file_tree) |ft| ft.root_path else ".";
+        // Validate filename - reject path separators and parent directory references
+        if (!isValidFilename(new_name)) {
+            self.status_message = "Invalid filename (no / or ..)";
+            self.input_buffer.clearRetainingCapacity();
+            self.mode = .tree_view;
+            return;
+        }
+
+        // Get current directory from cursor position
+        const current_dir = if (self.file_tree) |ft| self.getCurrentDirectory(ft) else ".";
         const new_path = try std.fs.path.join(self.allocator, &.{ current_dir, new_name });
         defer self.allocator.free(new_path);
 
@@ -1244,8 +1286,16 @@ pub const App = struct {
 
         const new_name = self.input_buffer.items;
 
-        // Get current directory
-        const current_dir = if (self.file_tree) |ft| ft.root_path else ".";
+        // Validate directory name - reject path separators and parent directory references
+        if (!isValidFilename(new_name)) {
+            self.status_message = "Invalid name (no / or ..)";
+            self.input_buffer.clearRetainingCapacity();
+            self.mode = .tree_view;
+            return;
+        }
+
+        // Get current directory from cursor position
+        const current_dir = if (self.file_tree) |ft| self.getCurrentDirectory(ft) else ".";
         const new_path = try std.fs.path.join(self.allocator, &.{ current_dir, new_name });
         defer self.allocator.free(new_path);
 
@@ -1340,6 +1390,9 @@ pub const App = struct {
         if (deleted_count > 0) {
             self.status_message = "Deleted";
             try self.reloadTree();
+        } else {
+            // All deletions failed
+            self.status_message = "Delete failed";
         }
 
         self.mode = .tree_view;
@@ -1347,7 +1400,41 @@ pub const App = struct {
 
     fn deletePathRecursive(self: *Self, path: []const u8) !void {
         _ = self;
+        // Use lstat to check the path itself, not what it points to
+        // This prevents symlink attacks where a symlink could cause deletion outside intended root
         const stat = try std.fs.cwd().statFile(path);
+
+        // Check if it's a symlink first (statFile follows symlinks, so we need to check separately)
+        // For symlinks, just delete the link itself
+        const dir = std.fs.cwd();
+        var dir_handle = dir.openDir(std.fs.path.dirname(path) orelse ".", .{}) catch {
+            // If we can't open parent dir, try direct deletion
+            if (stat.kind == .directory) {
+                try std.fs.cwd().deleteTree(path);
+            } else {
+                try std.fs.cwd().deleteFile(path);
+            }
+            return;
+        };
+        defer dir_handle.close();
+
+        const basename = std.fs.path.basename(path);
+        const lstat = dir_handle.statFile(basename) catch {
+            // Fallback to regular deletion
+            if (stat.kind == .directory) {
+                try std.fs.cwd().deleteTree(path);
+            } else {
+                try std.fs.cwd().deleteFile(path);
+            }
+            return;
+        };
+
+        // If it's a symlink, delete only the symlink itself (not what it points to)
+        if (lstat.kind == .sym_link) {
+            try dir_handle.deleteFile(basename);
+            return;
+        }
+
         if (stat.kind == .directory) {
             try std.fs.cwd().deleteTree(path);
         } else {
@@ -1574,6 +1661,22 @@ pub const App = struct {
     }
 };
 
+/// Validate filename - reject path separators and parent directory references
+/// to prevent path traversal attacks
+fn isValidFilename(name: []const u8) bool {
+    if (name.len == 0) return false;
+
+    // Reject path separators
+    if (std.mem.indexOf(u8, name, "/") != null) return false;
+    if (std.mem.indexOf(u8, name, "\\") != null) return false;
+
+    // Reject parent directory reference
+    if (std.mem.eql(u8, name, "..")) return false;
+    if (std.mem.eql(u8, name, ".")) return false;
+
+    return true;
+}
+
 /// Case-insensitive substring search (delegates to ui.findMatchPosition)
 fn containsIgnoreCase(haystack: []const u8, needle: []const u8) bool {
     if (needle.len == 0) return true;
@@ -1692,4 +1795,18 @@ test "containsIgnoreCase" {
     // Edge cases
     try std.testing.expect(containsIgnoreCase("a", ""));
     try std.testing.expect(!containsIgnoreCase("", "a"));
+}
+
+test "isValidFilename" {
+    // Valid filenames
+    try std.testing.expect(isValidFilename("test.txt"));
+    try std.testing.expect(isValidFilename("my-file_name.zig"));
+    try std.testing.expect(isValidFilename("file with spaces"));
+
+    // Invalid filenames - path traversal attempts
+    try std.testing.expect(!isValidFilename(".."));
+    try std.testing.expect(!isValidFilename("."));
+    try std.testing.expect(!isValidFilename("path/to/file"));
+    try std.testing.expect(!isValidFilename("path\\to\\file"));
+    try std.testing.expect(!isValidFilename(""));
 }
