@@ -38,10 +38,11 @@ For Zig projects, use the `zig-architect` agent:
 
 1. **Invoke zig-architect**: Use the Task tool with `subagent_type: zig-architect` to:
    - Read the spec at FEATURE_SPEC
+   - Read `specs/constitution.md` for project principles
    - Read existing architecture at `.claude/rules/architecture.md` (参照のみ)
    - Create plan.md at IMPL_PLAN with:
      - Technical Context (Zig version, libvaxis, etc.)
-     - Constitution Check
+     - Constitution Check (verify against specs/constitution.md)
      - Architecture decisions (state machine, memory strategy, modules)
      - Implementation phases aligned with User Story priorities
 
@@ -60,7 +61,9 @@ For Zig projects, use the `zig-architect` agent:
 
 3. **Phase 1**: Generate data-model.md, contracts/, quickstart.md
 
-4. **Phase 1**: Update agent context by running `.specify/scripts/bash/update-agent-context.sh claude`
+4. **Phase 2**: Update agent context by running `.specify/scripts/bash/update-agent-context.sh claude`
+
+5. **Re-evaluate Constitution Check**: Verify design artifacts don't violate constitution principles
 
 ## Phases
 
