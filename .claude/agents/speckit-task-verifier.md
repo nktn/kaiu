@@ -37,7 +37,7 @@ tasks.md が spec.md の全要件をカバーしているか検証する。
    - $FEATURE_DIR/spec.md (仕様、常に存在)
    - $FEATURE_DIR/tasks.md (タスクリスト、--require-tasks で必須)
 
-3. .specify/memory/constitution.md を読み込み (原則)
+3. specs/constitution.md を読み込み (原則)
 ```
 
 **注意**: ブランチ名は `NNN-feature-name` パターン (例: `001-search-feature`) である必要がある。

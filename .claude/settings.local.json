@@ -25,19 +25,16 @@
       "Skill(implement)",
       "Skill(learn)",
       "Bash(git add:*)",
-      "Bash(git commit -m \"$\\(cat <<''EOF''\nchore: clean up auto-added permission entries\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
       "Bash(zig run:*)",
-      "Bash(./zig-out/bin/kaiu:*)",
-      "Bash(echo:*)",
-      "Bash(git commit:*)",
-      "Bash(gh pr create --title \"feat: complete Phase 1 remaining tasks\" --body \"$\\(cat <<''EOF''\n## Summary\n- Add CLI path validation with tilde expansion for user-friendly error messages before TUI init\n- Add arrow key support \\(up/down\\) and scroll-follow-cursor behavior for improved navigation\n- Improve status bar with current directory path display and mode-specific keybind hints\n\n## Test plan\n- [ ] Verify `kaiu ~` expands to home directory correctly\n- [ ] Verify `kaiu /nonexistent` shows error message and exits with code 1\n- [ ] Verify arrow keys \\(up/down\\) navigate the tree like j/k\n- [ ] Verify cursor stays visible when scrolling \\(scroll follows cursor\\)\n- [ ] Verify status bar shows current path and keybind hints\n- [ ] Run `zig build test` - all tests pass\n\n🤖 Generated with [Claude Code]\\(https://claude.ai/code\\)\nEOF\n\\)\" --label \"enhancement\" --assignee \"@me\")",
       "Bash(codex exec:*)",
       "Bash(gh pr comment:*)",
-      "Bash(grep:*)",
       "Bash(gh pr create:*)",
-      "Bash(git cherry-pick:*)",
       "Bash(git checkout:*)",
-      "Bash(git pull:*)"
+      "Bash(git pull:*)",
+      "Bash(tree:*)",
+      "Bash(git fetch:*)",
+      "Bash(git merge:*)",
+      "Bash(git stash:*)"
     ]
   }
 }
