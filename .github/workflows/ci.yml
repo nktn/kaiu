@@ -21,7 +21,7 @@ jobs:
           ZIG_URL=$(echo "$ZIG_JSON" | jq -r '.master."x86_64-linux".tarball')
           echo "Downloading: $ZIG_URL"
           curl -sL "$ZIG_URL" | tar xJ
-          ZIG_DIR=$(ls -d zig-linux-x86_64-*)
+          ZIG_DIR=$(ls -d zig-x86_64-linux-*)
           echo "$PWD/$ZIG_DIR" >> $GITHUB_PATH
 
       - name: Check Zig version
@@ -47,7 +47,7 @@ jobs:
           ZIG_URL=$(echo "$ZIG_JSON" | jq -r '.master."aarch64-macos".tarball')
           echo "Downloading: $ZIG_URL"
           curl -sL "$ZIG_URL" | tar xJ
-          ZIG_DIR=$(ls -d zig-macos-aarch64-*)
+          ZIG_DIR=$(ls -d zig-aarch64-macos-*)
           echo "$PWD/$ZIG_DIR" >> $GITHUB_PATH
 
       - name: Check Zig version
