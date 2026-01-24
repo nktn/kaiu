@@ -40,3 +40,24 @@
 - Not a complicated file manager (no directory moves, no file content editing)
 - Not an IDE
 - Not a replacement for proper file management tools
+
+## Development Workflow
+
+### Track Selection
+
+開発作業は2つの Track に分かれる:
+
+| Track | コマンド | 用途 | GitHub Label |
+|-------|---------|------|--------------|
+| **Feature Track** | `/speckit.specify` | ユーザー価値を提供する機能 | `feature` |
+| **Technical Track** | `/technical` | 開発者価値、リファクタリング、ドキュメント改善 | `technical` |
+
+**判断基準**: 「この変更でユーザーが新しいことをできるようになるか？」
+
+- **Yes** → Feature Track (`/speckit.specify`)
+  - 例: fuzzy search、trash bin、新しいキーバインド
+  - spec.md → plan.md → tasks.md のフローを使用
+
+- **No** → Technical Track (`/technical`)
+  - 例: app.zig 分割、ドキュメント整理、パフォーマンス改善
+  - Issue ベースで直接実装

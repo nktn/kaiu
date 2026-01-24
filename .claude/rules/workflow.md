@@ -1,10 +1,115 @@
-# SpecKit + Implement ワークフロー
+# 開発ワークフロー
 
 kaiu 開発における計画から実装までの全体フロー。
 
 ---
 
-## 概要図
+## Track Selection
+
+開発作業は2つの Track に分かれる:
+
+| Track | コマンド | 用途 | Label |
+|-------|---------|------|-------|
+| **Feature Track** | `/speckit.specify` | ユーザー価値を提供する機能 | `feature` |
+| **Technical Track** | `/technical` | 開発者価値、リファクタリング、ドキュメント改善 | `technical` |
+
+**判断基準**: 「この変更でユーザーが新しいことをできるようになるか？」
+- Yes → Feature Track (`/speckit.specify`)
+- No → Technical Track (`/technical`)
+
+---
+
+## Technical Track
+
+### 概要図
+
+```
+/technical "改善の説明" または /technical #22
+    │
+    ▼
+関連 Issue を収集・分析
+    │   - 既存 Issue があれば参照
+    │   - 関連する他の Issue も確認
+    │
+    ▼
+タスクを整理・作成
+    │   - Issue の「タスク」セクションを更新
+    │   - 依存関係を整理
+    │
+    ▼
+ユーザー承認待ち
+    │   - 「この計画で進めていいですか？」
+    │
+    ▼
+Branch 作成 (未作成の場合)
+    │
+    ▼
+orchestrator (Issue タスクベース)
+    │   - zig-architect → zig-tdd → zig-build-resolver
+    │
+    ▼
+zig-refactor-cleaner
+    │
+    ▼
+doc-updater
+    │
+    ▼
+/pr (Closes #XX でリンク)
+    │
+    ▼
+/codex-fix → 手動テスト → マージ
+    │
+    ▼
+Issue も自動クローズ
+```
+
+### /technical コマンド
+
+**入力形式**:
+- `/technical "改善の説明"` - 新規 Issue を作成
+- `/technical #22` - 既存 Issue を参照
+
+**実行内容**:
+1. 関連 Issue を収集・分析
+2. タスクを整理し Issue の「タスク」セクションに書き込み
+3. Branch を作成 (`technical/{issue-number}-{short-description}`)
+4. orchestrator を起動
+
+**Issue テンプレート** (新規作成時):
+```markdown
+## 概要
+[改善の説明]
+
+## 背景
+[なぜ必要か]
+
+## 方針
+[どう実現するか]
+
+## タスク
+- [ ] タスク1
+- [ ] タスク2
+- [ ] ...
+```
+
+### orchestrator (Technical Track)
+
+Feature Track との違い:
+- spec.md ではなく Issue の「タスク」セクションを参照
+- speckit-impl-verifier をスキップ
+- speckit-task-verifier をスキップ
+
+**実行フロー**:
+1. Issue のタスクを読み込み
+2. タスクごとに: zig-architect → zig-tdd → (失敗時) zig-build-resolver
+3. 全タスク完了後: zig-refactor-cleaner
+4. doc-updater
+
+---
+
+## Feature Track
+
+### 概要図
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -239,17 +344,17 @@ echo "rename me" > test_files/rename_me.txt
 
 ## Agent 一覧
 
-| Agent | 役割 | 呼び出しタイミング |
-|-------|------|------------------|
-| `orchestrator` | タスク管理・実行制御 | `/implement` 開始時 |
-| `zig-architect` | 設計判断 | 各タスクの最初 |
-| `zig-tdd` | TDD サイクル | 設計判断後 |
-| `zig-build-resolver` | ビルド修正 | **ビルド失敗時のみ** |
-| `zig-refactor-cleaner` | リファクタリング | 全タスク完了後 |
-| `speckit-task-verifier` | Task カバレッジ検証 | `/speckit.tasks` 後 |
-| `speckit-impl-verifier` | 実装検証 | Phase 完了後、最終 |
-| `doc-updater` | ドキュメント + 学習 | 検証 PASS 後 |
-| `codex-fixer` | レビュー指摘修正 | `/codex-fix` 実行時 |
+| Agent | 役割 | 呼び出しタイミング | Track |
+|-------|------|------------------|-------|
+| `orchestrator` | タスク管理・実行制御 | `/implement`, `/technical` | 両方 |
+| `zig-architect` | 設計判断 | 各タスクの最初 | 両方 |
+| `zig-tdd` | TDD サイクル | 設計判断後 | 両方 |
+| `zig-build-resolver` | ビルド修正 | **ビルド失敗時のみ** | 両方 |
+| `zig-refactor-cleaner` | リファクタリング | 全タスク完了後 | 両方 |
+| `speckit-task-verifier` | Task カバレッジ検証 | `/speckit.tasks` 後 | Feature のみ |
+| `speckit-impl-verifier` | 実装検証 | Phase 完了後、最終 | Feature のみ |
+| `doc-updater` | ドキュメント + 学習 | 検証 PASS 後 | 両方 |
+| `codex-fixer` | レビュー指摘修正 | `/codex-fix` 実行時 | 両方 |
 
 ---
 
@@ -269,11 +374,12 @@ echo "rename me" > test_files/rename_me.txt
 
 ### 実装系
 
-| コマンド | 役割 |
-|----------|------|
-| `/implement` | 実装実行 (orchestrator 起動) |
-| `/build-fix` | ビルドエラー修正 |
-| `/tdd` | TDD サイクル |
+| コマンド | 役割 | Track |
+|----------|------|-------|
+| `/implement` | Feature 実装 (orchestrator 起動) | Feature |
+| `/technical` | Technical 実装 (Issue ベース) | Technical |
+| `/build-fix` | ビルドエラー修正 | 両方 |
+| `/tdd` | TDD サイクル | 両方 |
 
 ### その他
 
@@ -314,4 +420,33 @@ echo "rename me" > test_files/rename_me.txt
 # → spec との整合性を再確認 (レビュー修正後)
 # → 手動でアプリを動作確認
 # → 問題なければマージ
+```
+
+### Technical Track 例
+
+```bash
+# 1. Technical 作業開始
+/technical #22
+# または
+/technical "app.zig を複数モジュールに分割したい"
+
+# → 関連 Issue を分析
+# → タスクを整理して Issue に書き込み
+# → Branch 作成
+
+# 2. 実装
+# → orchestrator がタスクを実行
+# → zig-architect → zig-tdd → build-resolver
+# → zig-refactor-cleaner
+# → doc-updater
+
+# 3. PR 作成 + レビュー
+/pr
+# → "Closes #22" で Issue とリンク
+/codex-fix
+# → 自動で指摘修正 → Decision Log 追加
+
+# 4. 手動テスト + マージ
+# → 動作確認
+# → マージすると Issue も自動クローズ
 ```
