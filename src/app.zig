@@ -94,73 +94,12 @@ pub const App = struct {
     // Rename state - stores the path being renamed
     rename_target_path: ?[]const u8,
 
-    // Undo state
-    undo_state: UndoState,
-    undo_staging_dir: ?[]const u8,
-    undo_staging_counter: u32,
-
     const Self = @This();
 
     pub const ClipboardOperation = enum {
         none,
         copy,
         cut,
-    };
-
-    // ===== Undo Types =====
-    pub const UndoOperation = enum {
-        none,
-        delete, // deleted files staged in temp dir
-        move, // cut+paste: can move back
-        copy, // yank+paste: can delete copied files
-        rename, // rename: can revert to old name
-    };
-
-    pub const UndoEntry = struct {
-        src_path: []const u8, // original path
-        dest_path: []const u8, // destination path (or staging path for delete)
-
-        pub fn deinit(self: *UndoEntry, allocator: std.mem.Allocator) void {
-            allocator.free(self.src_path);
-            allocator.free(self.dest_path);
-        }
-    };
-
-    pub const UndoState = struct {
-        operation: UndoOperation,
-        entries: std.ArrayList(UndoEntry),
-
-        pub fn init(_: std.mem.Allocator) UndoState {
-            return .{
-                .operation = .none,
-                .entries = .empty,
-            };
-        }
-
-        pub fn deinit(self: *UndoState, allocator: std.mem.Allocator) void {
-            for (self.entries.items) |*entry| {
-                entry.deinit(allocator);
-            }
-            self.entries.deinit(allocator);
-        }
-
-        pub fn clear(self: *UndoState, allocator: std.mem.Allocator) void {
-            for (self.entries.items) |*entry| {
-                entry.deinit(allocator);
-            }
-            self.entries.clearRetainingCapacity();
-            self.operation = .none;
-        }
-
-        pub fn addEntry(self: *UndoState, allocator: std.mem.Allocator, src: []const u8, dest: []const u8) !void {
-            const src_copy = try allocator.dupe(u8, src);
-            errdefer allocator.free(src_copy);
-            const dest_copy = try allocator.dupe(u8, dest);
-            try self.entries.append(allocator, .{
-                .src_path = src_copy,
-                .dest_path = dest_copy,
-            });
-        }
     };
 
     pub fn init(allocator: std.mem.Allocator) !*Self {
@@ -194,13 +133,7 @@ pub const App = struct {
             .clipboard_files = .empty,
             .clipboard_operation = .none,
             .rename_target_path = null,
-            .undo_state = UndoState.init(allocator),
-            .undo_staging_dir = null,
-            .undo_staging_counter = 0,
         };
-
-        // Initialize undo staging directory
-        try self.initUndoStagingDir();
 
         self.tty = try vaxis.Tty.init(&self.tty_buf);
         errdefer self.tty.deinit();
@@ -245,12 +178,6 @@ pub const App = struct {
         self.clipboard_files.deinit(self.allocator);
         if (self.rename_target_path) |path| {
             self.allocator.free(path);
-        }
-        // Cleanup undo state and staging directory
-        self.undo_state.deinit(self.allocator);
-        self.cleanupUndoStagingDir();
-        if (self.undo_staging_dir) |dir| {
-            self.allocator.free(dir);
         }
         self.render_arena.deinit();
         self.allocator.destroy(self);
@@ -421,7 +348,6 @@ pub const App = struct {
             'r' => try self.enterRenameMode(),
             'a' => self.enterNewFileMode(),
             'A' => self.enterNewDirMode(),
-            'u' => try self.performUndo(),
             else => {},
         }
     }
@@ -1092,10 +1018,6 @@ pub const App = struct {
         // Get destination directory from cursor position
         const dest_dir = self.getCurrentDirectory(ft);
 
-        // Clear previous undo state and set operation type
-        self.undo_state.clear(self.allocator);
-        self.undo_state.operation = if (self.clipboard_operation == .copy) .copy else .move;
-
         var success_count: usize = 0;
         for (self.clipboard_files.items) |src_path| {
             const filename = std.fs.path.basename(src_path);
@@ -1125,8 +1047,6 @@ pub const App = struct {
             // Perform copy or move
             if (self.clipboard_operation == .copy) {
                 self.copyPath(src_path, final_dest) catch continue;
-                // Record undo entry for copy (just need dest to delete)
-                self.undo_state.addEntry(self.allocator, "", final_dest) catch {};
             } else {
                 std.fs.cwd().rename(src_path, final_dest) catch {
                     // If rename fails (cross-device), try copy + delete
@@ -1137,8 +1057,6 @@ pub const App = struct {
                         // (user will have duplicate, not data loss)
                     };
                 };
-                // Record undo entry for move (need both src and dest to move back)
-                self.undo_state.addEntry(self.allocator, src_path, final_dest) catch {};
             }
             success_count += 1;
         }
@@ -1156,8 +1074,6 @@ pub const App = struct {
             self.status_message = "Pasted";
             try self.reloadTree();
         } else {
-            // Clear undo state if paste failed
-            self.undo_state.clear(self.allocator);
             self.status_message = "Paste failed";
         }
     }
@@ -1281,11 +1197,6 @@ pub const App = struct {
             self.mode = .tree_view;
             return;
         };
-
-        // Record undo info for rename
-        self.undo_state.clear(self.allocator);
-        self.undo_state.operation = .rename;
-        self.undo_state.addEntry(self.allocator, old_path, new_path) catch {};
 
         self.status_message = "Renamed";
         self.input_buffer.clearRetainingCapacity();
@@ -1469,10 +1380,6 @@ pub const App = struct {
         var deleted_count: usize = 0;
         var total_count: usize = 0;
 
-        // Clear previous undo state for new delete operation
-        self.undo_state.clear(self.allocator);
-        self.undo_state.operation = .delete;
-
         if (self.marked_files.count() > 0) {
             // Delete all marked files
             var to_delete: std.ArrayList([]const u8) = .empty;
@@ -1486,7 +1393,7 @@ pub const App = struct {
 
             total_count = to_delete.items.len;
             for (to_delete.items) |path| {
-                self.stageFileForUndo(path) catch {
+                self.deletePathRecursive(path) catch {
                     // Continue deleting others even if one fails
                     continue;
                 };
@@ -1503,7 +1410,7 @@ pub const App = struct {
             };
             const entry = &ft.entries.items[actual_index];
 
-            self.stageFileForUndo(entry.path) catch |err| {
+            self.deletePathRecursive(entry.path) catch |err| {
                 self.status_message = switch (err) {
                     error.AccessDenied => "Permission denied",
                     else => "Delete failed",
@@ -1521,66 +1428,12 @@ pub const App = struct {
             } else {
                 self.status_message = "Deleted";
             }
-            // If no undo entries were added (all symlinks), clear undo state
-            if (self.undo_state.entries.items.len == 0) {
-                self.undo_state.operation = .none;
-            }
             try self.reloadTree();
         } else {
-            // All deletions failed - clear undo state
-            self.undo_state.clear(self.allocator);
             self.status_message = "Delete failed";
         }
 
         self.mode = .tree_view;
-    }
-
-    /// Stage a file for undo by moving it to staging directory
-    /// Security: symlinks are deleted directly without staging (not undoable)
-    fn stageFileForUndo(self: *Self, path: []const u8) !void {
-        // Security: Check for symlink FIRST to prevent symlink attacks
-        var link_buf: [std.fs.max_path_bytes]u8 = undefined;
-        if (std.fs.cwd().readLink(path, &link_buf)) |_| {
-            // It's a symlink - delete directly without staging (not undoable)
-            try std.fs.cwd().deleteFile(path);
-            return;
-        } else |_| {
-            // Not a symlink, continue with staging
-        }
-
-        if (self.undo_staging_dir == null) {
-            // Fallback to direct delete if no staging dir
-            try self.deletePathRecursive(path);
-            return;
-        }
-        const staging_dir = self.undo_staging_dir.?;
-
-        // Generate unique name in staging dir with counter to avoid collisions
-        const basename = std.fs.path.basename(path);
-        const timestamp = std.time.milliTimestamp();
-        self.undo_staging_counter += 1;
-        const staging_path = try std.fmt.allocPrint(self.allocator, "{s}/{d}_{d}_{s}", .{ staging_dir, timestamp, self.undo_staging_counter, basename });
-        defer self.allocator.free(staging_path);
-
-        // Move file to staging (rename is fast if same filesystem)
-        std.fs.cwd().rename(path, staging_path) catch |err| {
-            // If rename fails (cross-device), fall back to copy+delete with symlink safety
-            if (err == error.RenameAcrossMountPoints) {
-                const stat = try std.fs.cwd().statFile(path);
-                if (stat.kind == .directory) {
-                    try copyDirRecursiveSafe(path, staging_path);
-                } else {
-                    try std.fs.cwd().copyFile(path, std.fs.cwd(), staging_path, .{});
-                }
-                // Delete original after successful copy using safe recursive delete
-                try self.deletePathRecursive(path);
-            } else {
-                return err;
-            }
-        };
-
-        // Record undo entry
-        try self.undo_state.addEntry(self.allocator, path, staging_path);
     }
 
     fn deletePathRecursive(self: *Self, path: []const u8) !void {
@@ -1611,172 +1464,6 @@ pub const App = struct {
 
     fn enterHelpMode(self: *Self) void {
         self.mode = .help;
-    }
-
-    // ===== Undo Operations =====
-
-    fn initUndoStagingDir(self: *Self) !void {
-        // Create staging directory with random suffix for security
-        // Format: /tmp/kaiu-undo-{random1}-{random2}/
-        // Uses two random values for uniqueness (no libc dependency)
-        const nano = std.time.nanoTimestamp();
-        var prng = std.Random.DefaultPrng.init(@truncate(@as(u128, @bitCast(nano))));
-        const random1 = prng.random().int(u32);
-        const random2 = prng.random().int(u32);
-
-        const staging_path = try std.fmt.allocPrint(self.allocator, "/tmp/kaiu-undo-{x}-{x}", .{ random1, random2 });
-        errdefer self.allocator.free(staging_path);
-
-        // Security: Check if path already exists (could be attacker-created)
-        var link_buf: [std.fs.max_path_bytes]u8 = undefined;
-        if (std.fs.cwd().readLink(staging_path, &link_buf)) |_| {
-            // Pre-existing symlink - refuse to use
-            self.allocator.free(staging_path);
-            return error.AccessDenied;
-        } else |_| {}
-
-        // Check if path exists as regular file/dir (shouldn't with random suffix)
-        if (std.fs.cwd().statFile(staging_path)) |_| {
-            // Pre-existing path - refuse to use for security
-            self.allocator.free(staging_path);
-            return error.PathAlreadyExists;
-        } else |_| {}
-
-        // Create new directory
-        std.fs.cwd().makeDir(staging_path) catch |err| {
-            self.allocator.free(staging_path);
-            return err;
-        };
-
-        self.undo_staging_dir = staging_path;
-    }
-
-    fn cleanupUndoStagingDir(self: *Self) void {
-        if (self.undo_staging_dir) |dir| {
-            // Remove staging directory and all contents
-            std.fs.cwd().deleteTree(dir) catch {
-                // Ignore errors during cleanup
-            };
-        }
-    }
-
-    fn performUndo(self: *Self) !void {
-        if (self.undo_state.operation == .none or self.undo_state.entries.items.len == 0) {
-            self.status_message = "Nothing to undo";
-            return;
-        }
-
-        var success_count: usize = 0;
-        const total_count = self.undo_state.entries.items.len;
-
-        switch (self.undo_state.operation) {
-            .none => {
-                self.status_message = "Nothing to undo";
-                return;
-            },
-            .delete => {
-                // Restore from staging directory
-                for (self.undo_state.entries.items) |entry| {
-                    const restored = blk: {
-                        std.fs.cwd().rename(entry.dest_path, entry.src_path) catch |err| {
-                            // Try copy+delete if rename fails
-                            if (err == error.RenameAcrossMountPoints) {
-                                const stat = std.fs.cwd().statFile(entry.dest_path) catch break :blk false;
-                                if (stat.kind == .directory) {
-                                    copyDirRecursiveSafe(entry.dest_path, entry.src_path) catch break :blk false;
-                                    std.fs.cwd().deleteTree(entry.dest_path) catch {};
-                                } else {
-                                    std.fs.cwd().copyFile(entry.dest_path, std.fs.cwd(), entry.src_path, .{}) catch break :blk false;
-                                    std.fs.cwd().deleteFile(entry.dest_path) catch {};
-                                }
-                            } else {
-                                break :blk false;
-                            }
-                        };
-                        break :blk true;
-                    };
-                    if (restored) success_count += 1;
-                }
-                if (success_count == total_count) {
-                    self.status_message = "Undone: delete";
-                } else if (success_count > 0) {
-                    self.status_message = "Undone: delete (some failed)";
-                } else {
-                    self.status_message = "Undo failed";
-                    return; // Keep undo state on total failure
-                }
-            },
-            .move => {
-                // Move files back to original location with cross-device fallback
-                for (self.undo_state.entries.items) |entry| {
-                    const restored = blk: {
-                        std.fs.cwd().rename(entry.dest_path, entry.src_path) catch |err| {
-                            // Cross-device fallback: copy + delete
-                            if (err == error.RenameAcrossMountPoints) {
-                                const stat = std.fs.cwd().statFile(entry.dest_path) catch break :blk false;
-                                if (stat.kind == .directory) {
-                                    copyDirRecursiveSafe(entry.dest_path, entry.src_path) catch break :blk false;
-                                    std.fs.cwd().deleteTree(entry.dest_path) catch {};
-                                } else {
-                                    std.fs.cwd().copyFile(entry.dest_path, std.fs.cwd(), entry.src_path, .{}) catch break :blk false;
-                                    std.fs.cwd().deleteFile(entry.dest_path) catch {};
-                                }
-                            } else {
-                                break :blk false;
-                            }
-                        };
-                        break :blk true;
-                    };
-                    if (restored) success_count += 1;
-                }
-                if (success_count == total_count) {
-                    self.status_message = "Undone: move";
-                } else if (success_count > 0) {
-                    self.status_message = "Undone: move (some failed)";
-                } else {
-                    self.status_message = "Undo failed";
-                    return; // Keep undo state on total failure
-                }
-            },
-            .copy => {
-                // Delete the copied files using safe delete
-                for (self.undo_state.entries.items) |entry| {
-                    self.deletePathRecursive(entry.dest_path) catch {
-                        continue;
-                    };
-                    success_count += 1;
-                }
-                if (success_count == total_count) {
-                    self.status_message = "Undone: copy";
-                } else if (success_count > 0) {
-                    self.status_message = "Undone: copy (some failed)";
-                } else {
-                    self.status_message = "Undo failed";
-                    return; // Keep undo state on total failure
-                }
-            },
-            .rename => {
-                // Rename back to original name
-                for (self.undo_state.entries.items) |entry| {
-                    std.fs.cwd().rename(entry.dest_path, entry.src_path) catch {
-                        continue;
-                    };
-                    success_count += 1;
-                }
-                if (success_count == total_count) {
-                    self.status_message = "Undone: rename";
-                } else if (success_count > 0) {
-                    self.status_message = "Undone: rename (some failed)";
-                } else {
-                    self.status_message = "Undo failed";
-                    return; // Keep undo state on total failure
-                }
-            },
-        }
-
-        // Clear undo state only on success or partial success
-        self.undo_state.clear(self.allocator);
-        try self.reloadTree();
     }
 
     fn render(self: *Self, writer: anytype) !void {
@@ -1968,14 +1655,11 @@ pub const App = struct {
     }
 
     fn renderStatusRow2(self: *Self, win: vaxis.Window, row: u16) !void {
-        const has_undo = self.undo_state.operation != .none;
         const hints: []const u8 = switch (self.mode) {
             .tree_view => if (self.input_buffer.items.len > 0)
                 "n/N:next/prev  Esc:clear search  /:new search  ?:help  q:quit"
             else if (self.marked_files.count() > 0)
                 "Space:unmark  y:yank  d:cut  D:delete  Esc:clear marks"
-            else if (has_undo)
-                "j/k:move  h/l:collapse/expand  u:undo  Space:mark  /:search  q:quit"
             else
                 "j/k:move  h/l:collapse/expand  Space:mark  /:search  ?:help  q:quit",
             .search => "Enter:confirm  Esc:cancel",
@@ -2117,51 +1801,6 @@ fn copyDirRecursive(src_path: []const u8, dest_path: []const u8) !void {
             try copyDirRecursive(src_child, dest_child);
         } else {
             // Propagate error instead of swallowing it
-            try std.fs.cwd().copyFile(src_child, std.fs.cwd(), dest_child, .{});
-        }
-    }
-}
-
-/// Copy a directory recursively with symlink safety
-/// Symlinks are skipped to prevent following links outside the intended tree
-fn copyDirRecursiveSafe(src_path: []const u8, dest_path: []const u8) !void {
-    // Security: Check if source is a symlink
-    var link_buf: [std.fs.max_path_bytes]u8 = undefined;
-    if (std.fs.cwd().readLink(src_path, &link_buf)) |_| {
-        // Skip symlinks during safe copy
-        return;
-    } else |_| {}
-
-    // Create destination directory
-    std.fs.cwd().makeDir(dest_path) catch |err| {
-        if (err != error.PathAlreadyExists) return err;
-    };
-
-    // Open source directory
-    var src_dir = try std.fs.cwd().openDir(src_path, .{ .iterate = true });
-    defer src_dir.close();
-
-    // Use a stack-based allocator for path building
-    var buf: [std.fs.max_path_bytes * 2]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buf);
-    const allocator = fba.allocator();
-
-    // Iterate and copy with symlink checks
-    var iter = src_dir.iterate();
-    while (try iter.next()) |entry| {
-        fba.reset();
-        const src_child = try std.fs.path.join(allocator, &.{ src_path, entry.name });
-        const dest_child = try std.fs.path.join(allocator, &.{ dest_path, entry.name });
-
-        // Check for symlink before processing
-        if (std.fs.cwd().readLink(src_child, &link_buf)) |_| {
-            // Skip symlinks
-            continue;
-        } else |_| {}
-
-        if (entry.kind == .directory) {
-            try copyDirRecursiveSafe(src_child, dest_child);
-        } else {
             try std.fs.cwd().copyFile(src_child, std.fs.cwd(), dest_child, .{});
         }
     }
@@ -2506,230 +2145,3 @@ test "formatDisplayPath handles path with home prefix but no slash" {
     }
 }
 
-// ===== Task 2.15: Undo Operations Tests =====
-
-test "UndoOperation enum values" {
-    // Verify all undo operation types exist
-    const ops = [_]App.UndoOperation{
-        .none,
-        .delete,
-        .move,
-        .copy,
-        .rename,
-    };
-    try std.testing.expectEqual(@as(usize, 5), ops.len);
-}
-
-test "UndoState init and deinit" {
-    const allocator = std.testing.allocator;
-
-    var undo = App.UndoState.init(allocator);
-    defer undo.deinit(allocator);
-
-    try std.testing.expectEqual(App.UndoOperation.none, undo.operation);
-    try std.testing.expectEqual(@as(usize, 0), undo.entries.items.len);
-}
-
-test "UndoState addEntry and clear" {
-    const allocator = std.testing.allocator;
-
-    var undo = App.UndoState.init(allocator);
-    defer undo.deinit(allocator);
-
-    // Add entry
-    undo.operation = .delete;
-    try undo.addEntry(allocator, "/path/to/file.txt", "/tmp/staging/file.txt");
-
-    try std.testing.expectEqual(@as(usize, 1), undo.entries.items.len);
-    try std.testing.expectEqualStrings("/path/to/file.txt", undo.entries.items[0].src_path);
-    try std.testing.expectEqualStrings("/tmp/staging/file.txt", undo.entries.items[0].dest_path);
-
-    // Clear
-    undo.clear(allocator);
-    try std.testing.expectEqual(App.UndoOperation.none, undo.operation);
-    try std.testing.expectEqual(@as(usize, 0), undo.entries.items.len);
-}
-
-test "UndoState multiple entries" {
-    const allocator = std.testing.allocator;
-
-    var undo = App.UndoState.init(allocator);
-    defer undo.deinit(allocator);
-
-    undo.operation = .move;
-    try undo.addEntry(allocator, "/src/file1.txt", "/dest/file1.txt");
-    try undo.addEntry(allocator, "/src/file2.txt", "/dest/file2.txt");
-
-    try std.testing.expectEqual(@as(usize, 2), undo.entries.items.len);
-    try std.testing.expectEqual(App.UndoOperation.move, undo.operation);
-}
-
-test "UndoEntry deinit frees memory" {
-    const allocator = std.testing.allocator;
-
-    var entry: App.UndoEntry = .{
-        .src_path = try allocator.dupe(u8, "/original/path"),
-        .dest_path = try allocator.dupe(u8, "/dest/path"),
-    };
-
-    // deinit should free both strings
-    entry.deinit(allocator);
-    // If no leak, test passes
-}
-
-test "Undo delete restores file" {
-    const allocator = std.testing.allocator;
-
-    var tmp_dir = std.testing.tmpDir(.{});
-    defer tmp_dir.cleanup();
-
-    // Create test file
-    const test_content = "important data";
-    var file = try tmp_dir.dir.createFile("to_delete.txt", .{});
-    try file.writeAll(test_content);
-    file.close();
-
-    // Create staging directory
-    try tmp_dir.dir.makeDir("staging");
-
-    // Get paths
-    const base_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
-    defer allocator.free(base_path);
-    const src_path = try std.fs.path.join(allocator, &.{ base_path, "to_delete.txt" });
-    defer allocator.free(src_path);
-    const staging_path = try std.fs.path.join(allocator, &.{ base_path, "staging", "to_delete.txt" });
-    defer allocator.free(staging_path);
-
-    // Simulate delete by moving to staging
-    try std.fs.cwd().rename(src_path, staging_path);
-
-    // Verify file is "deleted" (moved to staging)
-    const deleted_result = std.fs.cwd().access(src_path, .{});
-    try std.testing.expectError(error.FileNotFound, deleted_result);
-
-    // Simulate undo by moving back
-    try std.fs.cwd().rename(staging_path, src_path);
-
-    // Verify file is restored
-    _ = try std.fs.cwd().access(src_path, .{});
-
-    // Verify content
-    var restored = try std.fs.cwd().openFile(src_path, .{});
-    defer restored.close();
-    const content = try restored.readToEndAlloc(allocator, 1024);
-    defer allocator.free(content);
-    try std.testing.expectEqualStrings(test_content, content);
-}
-
-test "Undo rename reverts filename" {
-    const allocator = std.testing.allocator;
-
-    var tmp_dir = std.testing.tmpDir(.{});
-    defer tmp_dir.cleanup();
-
-    // Create test file
-    var file = try tmp_dir.dir.createFile("original.txt", .{});
-    file.close();
-
-    // Get paths
-    const base_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
-    defer allocator.free(base_path);
-    const old_path = try std.fs.path.join(allocator, &.{ base_path, "original.txt" });
-    defer allocator.free(old_path);
-    const new_path = try std.fs.path.join(allocator, &.{ base_path, "renamed.txt" });
-    defer allocator.free(new_path);
-
-    // Perform rename
-    try std.fs.cwd().rename(old_path, new_path);
-
-    // Verify rename worked
-    _ = try std.fs.cwd().access(new_path, .{});
-    const old_result = std.fs.cwd().access(old_path, .{});
-    try std.testing.expectError(error.FileNotFound, old_result);
-
-    // Undo rename
-    try std.fs.cwd().rename(new_path, old_path);
-
-    // Verify undo worked
-    _ = try std.fs.cwd().access(old_path, .{});
-    const new_result = std.fs.cwd().access(new_path, .{});
-    try std.testing.expectError(error.FileNotFound, new_result);
-}
-
-test "Undo copy deletes copied file" {
-    const allocator = std.testing.allocator;
-
-    var tmp_dir = std.testing.tmpDir(.{});
-    defer tmp_dir.cleanup();
-
-    // Create source file
-    var file = try tmp_dir.dir.createFile("source.txt", .{});
-    try file.writeAll("source content");
-    file.close();
-
-    // Get paths
-    const base_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
-    defer allocator.free(base_path);
-    const src_path = try std.fs.path.join(allocator, &.{ base_path, "source.txt" });
-    defer allocator.free(src_path);
-    const copy_path = try std.fs.path.join(allocator, &.{ base_path, "copy.txt" });
-    defer allocator.free(copy_path);
-
-    // Copy file
-    try std.fs.cwd().copyFile(src_path, std.fs.cwd(), copy_path, .{});
-
-    // Verify copy exists
-    _ = try std.fs.cwd().access(copy_path, .{});
-
-    // Undo copy (delete the copied file)
-    try std.fs.cwd().deleteFile(copy_path);
-
-    // Verify copy is deleted
-    const result = std.fs.cwd().access(copy_path, .{});
-    try std.testing.expectError(error.FileNotFound, result);
-
-    // Verify source still exists
-    _ = try std.fs.cwd().access(src_path, .{});
-}
-
-test "Undo move reverses file location" {
-    const allocator = std.testing.allocator;
-
-    var tmp_dir = std.testing.tmpDir(.{});
-    defer tmp_dir.cleanup();
-
-    // Create directories
-    try tmp_dir.dir.makeDir("src_dir");
-    try tmp_dir.dir.makeDir("dest_dir");
-
-    // Create test file
-    var src_subdir = try tmp_dir.dir.openDir("src_dir", .{});
-    var file = try src_subdir.createFile("moved.txt", .{});
-    try file.writeAll("move content");
-    file.close();
-    src_subdir.close();
-
-    // Get paths
-    const base_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
-    defer allocator.free(base_path);
-    const src_path = try std.fs.path.join(allocator, &.{ base_path, "src_dir", "moved.txt" });
-    defer allocator.free(src_path);
-    const dest_path = try std.fs.path.join(allocator, &.{ base_path, "dest_dir", "moved.txt" });
-    defer allocator.free(dest_path);
-
-    // Perform move
-    try std.fs.cwd().rename(src_path, dest_path);
-
-    // Verify move worked
-    _ = try std.fs.cwd().access(dest_path, .{});
-    const src_result = std.fs.cwd().access(src_path, .{});
-    try std.testing.expectError(error.FileNotFound, src_result);
-
-    // Undo move
-    try std.fs.cwd().rename(dest_path, src_path);
-
-    // Verify undo worked
-    _ = try std.fs.cwd().access(src_path, .{});
-    const dest_result = std.fs.cwd().access(dest_path, .{});
-    try std.testing.expectError(error.FileNotFound, dest_result);
-}

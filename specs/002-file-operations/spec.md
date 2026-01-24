@@ -2,7 +2,7 @@
 
 **Feature Branch**: `phase2-file-operations`
 **Created**: 2026-01-22
-**Status**: Partially Implemented (US1-6 complete, US7/FR-030-031 pending)
+**Status**: Implemented (US1-6 complete)
 **Input**: File operations (mark, copy, cut, paste, delete, rename, create), clipboard, search, navigation jumps, help overlay
 
 ## Target Persona
@@ -123,24 +123,6 @@ Tanaka-san はファイルパスをコピーして他のツールで使いたい
 
 ---
 
-### User Story 7 - Undo Operations (Priority: P2)
-
-Tanaka-san は誤ってファイルを削除・移動してしまった。すぐに取り消して元に戻したい。
-
-**Why this priority**: 破壊的操作の安全ネット。削除確認があるとはいえ、ミスは起きる。
-
-**Independent Test**: ファイル削除後に `u` で復元。
-
-**Acceptance Scenarios**:
-
-1. **Given** user just deleted a file, **When** user presses `u`, **Then** file is restored to original location
-2. **Given** user just moved files (cut + paste), **When** user presses `u`, **Then** files are moved back to original location
-3. **Given** user just copied files (yank + paste), **When** user presses `u`, **Then** copied files are deleted
-4. **Given** user just renamed a file, **When** user presses `u`, **Then** file is renamed back to original name
-5. **Given** no undoable operation exists, **When** user presses `u`, **Then** status shows "Nothing to undo"
-
----
-
 ### Edge Cases
 
 - Paste with no yanked files: Show "Nothing to paste"
@@ -207,14 +189,6 @@ Tanaka-san は誤ってファイルを削除・移動してしまった。すぐ
 - **FR-030**: Status bar MUST display absolute path (not `.` or relative path)
 - **FR-031**: Paths under home directory MUST be displayed with `~` prefix (e.g., `~/Documents/github/kaiu`)
 
-#### Undo
-- **FR-032**: `u` MUST undo the last file operation (delete, move, copy, rename)
-- **FR-033**: Undo MUST restore deleted files to original location
-- **FR-034**: Undo MUST move files back after cut+paste
-- **FR-035**: Undo MUST delete copied files after yank+paste
-- **FR-036**: Undo MUST revert rename to original filename
-- **FR-037**: Only the most recent operation CAN be undone (single-level undo)
-
 ### Key Entities
 
 - **MarkedFiles**: Set of marked file paths
@@ -243,7 +217,6 @@ Tanaka-san は誤ってファイルを削除・移動してしまった。すぐ
 | `gg` | tree | Jump to first item |
 | `G` | tree | Jump to last item |
 | `?` | tree | Show help overlay |
-| `u` | tree | Undo last operation |
 | `y` | confirm | Confirm action |
 | `n` | confirm | Cancel action |
 | `Esc` | confirm/search/input | Cancel |
