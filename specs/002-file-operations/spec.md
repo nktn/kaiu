@@ -2,7 +2,7 @@
 
 **Feature Branch**: `phase2-file-operations`
 **Created**: 2026-01-22
-**Status**: Draft
+**Status**: Partially Implemented (US1-6 complete, US7/FR-030-031 pending)
 **Input**: File operations (mark, copy, cut, paste, delete, rename, create), clipboard, search, navigation jumps, help overlay
 
 ## Target Persona

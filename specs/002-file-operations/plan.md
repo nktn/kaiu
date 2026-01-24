@@ -15,14 +15,16 @@ Phase 2 extends kaiu with file management capabilities: marking, copy/cut/paste,
 - Multi-key command infrastructure (`pending_key`)
 - Input buffer infrastructure (`input_buffer`)
 
-**New in Phase 2**:
+**Implemented in Phase 2** (PR #13):
 - File marking (Space toggle, visual indicator)
 - Yank/Cut/Paste (`y`/`d`/`p`)
 - Delete with confirmation (`D`)
 - Rename (`r`)
 - Create file/directory (`a`/`A`)
-- Undo last operation (`u`)
-- Status bar absolute path display with `~` prefix
+
+**Pending in Phase 2**:
+- Undo last operation (`u`) - Task 2.15
+- Status bar absolute path display with `~` prefix - Task 2.14
 
 ## Technical Context
 
@@ -407,7 +409,7 @@ stateDiagram-v2
     TreeView --> TreeView: H/L (collapse/expand all)
     TreeView --> TreeView: Tab (toggle dir)
     TreeView --> TreeView: R (reload)
-    TreeView --> TreeView: Esc (clear search/marks)
+    TreeView --> TreeView: Esc (clear search)
     TreeView --> TreeView: Space (toggle mark)
     TreeView --> TreeView: y (yank)
     TreeView --> TreeView: d (cut)
