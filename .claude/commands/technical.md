@@ -23,17 +23,19 @@ $ARGUMENTS
     │
     ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  Phase 1: Issue Analysis & Task Planning                    │
+│  Phase 1: Issue Analysis & Specs Creation                   │
 │  ├── 入力を解析 (新規 or 既存 Issue)                          │
 │  ├── 関連 Issue を収集・分析                                  │
-│  ├── タスクを整理し Issue の「タスク」セクションに書き込み       │
+│  ├── specs/technical/{issue-number}-{short-name}/ を作成     │
+│  │   ├── plan.md (方針・設計)                                │
+│  │   └── tasks.md (タスクリスト)                             │
 │  └── Branch 作成 (未作成の場合)                               │
 │                                                             │
 │  Phase 2: User Approval                                     │
 │  └── タスク一覧を表示してユーザー承認を待つ                     │
 │                                                             │
 │  Phase 3: Execution (承認後)                                │
-│  │  orchestrator が Issue タスクを実行:                       │
+│  │  orchestrator が tasks.md を実行:                         │
 │  │  ┌─────────────┐   ┌─────────────┐   ┌─────────────────┐│
 │  │  │zig-architect│ → │  zig-tdd    │ → │zig-build-resolver││
 │  │  │ 設計判断     │   │ RED→GREEN  │   │ (失敗時のみ)     ││
@@ -48,7 +50,8 @@ $ARGUMENTS
 ```
 
 **Feature Track との違い**:
-- spec.md を使わない (Issue の「タスク」セクションを使用)
+- spec.md を使わない (Issue が仕様書の役割)
+- plan.md と tasks.md は `specs/technical/` に作成
 - speckit-task-verifier をスキップ
 - speckit-impl-verifier をスキップ
 
@@ -93,32 +96,54 @@ gh issue list --search "keyword" --state open
 
 ---
 
-### Step 3: タスク整理
+### Step 3: Specs ディレクトリ作成
 
-既存 Issue のタスクを分析し、整理する:
+Issue の内容から plan.md と tasks.md を作成:
+
+```bash
+# ディレクトリ作成 (例: specs/technical/25-technical-track-specs)
+mkdir -p specs/technical/{issue-number}-{short-name}
+```
+
+**plan.md 作成** (テンプレート: `.specify/templates/technical-plan-template.md`):
+- Issue の概要・背景をコピー
+- 影響範囲を分析
+- 設計判断を記録
+
+**tasks.md 作成** (テンプレート: `.specify/templates/technical-tasks-template.md`):
+- Issue のタスクセクションを整理
+- Phase 分け (準備 / 実装 / 検証)
+- タスク ID 付与 (T001, T002, ...)
+
+---
+
+### Step 4: ユーザー承認
+
+作成した plan.md と tasks.md を提示:
 
 ```markdown
-## タスク (Issue に書き込む)
+=== Technical Track 実行計画 ===
 
-### 分析結果
-- Issue #22 から: 5 タスク
-- Issue #21 から: 2 タスク (関連として統合)
+■ 参照 Issue: #25
+■ Specs: `specs/technical/25-technical-track-specs/`
 
-### 実行タスク
-- [ ] workflow.md に Track 説明を追加
-- [ ] /technical skill を作成
-- [ ] /speckit.specify を更新
-- [ ] constitution.md に判断基準を追加
-- [ ] ...
+■ plan.md 概要
+- 方針: {概要}
+- 影響範囲: {ファイル数}
 
-このタスクリストで進めていいですか？
+■ tasks.md サマリー
+- Phase 1: 準備 (X タスク)
+- Phase 2: 実装 (X タスク)
+- Phase 3: 検証 (X タスク)
+
+この計画で進めていいですか？
 ```
 
 **ユーザー承認を待つ** (承認までコードを書かない)
 
 ---
 
-### Step 4: Branch 作成
+### Step 5: Branch 作成
 
 ```bash
 # 現在のブランチを確認
@@ -135,15 +160,15 @@ fi
 
 ---
 
-### Step 5: Orchestrator 起動 (Technical Track Mode)
+### Step 6: Orchestrator 起動 (Technical Track Mode)
 
 ```
 Task(subagent_type: "orchestrator", prompt: "
 Technical Track モードで実行してください。
 
 ■ 参照 Issue: #{issue-number}
-■ タスク:
-{Issue のタスクセクション}
+■ Plan: specs/technical/{issue-number}-{short-name}/plan.md
+■ Tasks: specs/technical/{issue-number}-{short-name}/tasks.md
 
 Phase 1: 各タスクを実行
 - zig-architect → zig-tdd → (失敗時のみ) zig-build-resolver
@@ -153,7 +178,7 @@ Phase 2: Completion
 - doc-updater
 
 **注意**:
-- spec.md は参照しない
+- spec.md は参照しない (Issue が仕様書)
 - speckit-impl-verifier はスキップ
 ")
 ```
@@ -166,24 +191,26 @@ Phase 2: Completion
 === Technical Track 実行計画 ===
 
 ■ 参照 Issue
-- #22: workflow: clarify Feature Track vs Technical Track separation
+- #25: workflow: add plan.md and tasks.md to Technical Track
 
-■ 関連 Issue
-- #21: docs: clarify separation between architecture.md and learned/
+■ Specs
+- specs/technical/25-technical-track-specs/
+  ├── plan.md (方針・設計)
+  └── tasks.md (タスクリスト)
 
-■ タスク一覧
+■ tasks.md サマリー
 
-Task 1: workflow.md に Track 説明を追加
-  ├── 変更ファイル: .claude/rules/workflow.md
-  └── Agent: zig-architect → (コードなしなら skip)
+Phase 1: 準備
+- T001: specs/technical/ ディレクトリ構造を定義
 
-Task 2: /technical skill を作成
-  ├── 変更ファイル: .claude/commands/technical.md
-  └── Agent: zig-architect
+Phase 2: 実装
+- T002: /technical コマンドを更新
+- T003: workflow.md を更新
+- T004: テンプレートを作成
 
-Task 3: constitution.md に判断基準を追加
-  ├── 変更ファイル: specs/constitution.md
-  └── Agent: zig-architect → (コードなしなら skip)
+Phase 3: 検証
+- T005: ドキュメント更新
+- T006: 動作確認
 
 ■ 完了後
   ├── zig-refactor-cleaner (コード変更がある場合)

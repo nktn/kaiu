@@ -1,7 +1,7 @@
 # Implementation Plan: Phase 2 - File Operations & Utilities
 
 **Branch**: `phase2-file-operations` | **Date**: 2026-01-24 | **Spec**: [spec.md](./spec.md)
-**Input**: Feature specification from `specs/002-file-operations/spec.md`
+**Input**: Feature specification from `specs/feature/002-file-operations/spec.md`
 
 ## Summary
 

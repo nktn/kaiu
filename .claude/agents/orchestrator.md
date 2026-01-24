@@ -22,7 +22,7 @@ tasks.md を読み込み、計画を立て、**ユーザー承認後に**実行�
 .specify/scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks
 
 # 出力例:
-# {"FEATURE_DIR":"/path/to/repo/specs/001-feature","AVAILABLE_DOCS":["tasks.md"]}
+# {"FEATURE_DIR":"/path/to/repo/specs/feature/001-feature","AVAILABLE_DOCS":["tasks.md"]}
 # 注: AVAILABLE_DOCS は --include-tasks で tasks.md のみ含まれる
 #     spec.md/plan.md は常に $FEATURE_DIR 直下に存在する前提
 ```
