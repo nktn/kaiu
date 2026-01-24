@@ -23,7 +23,6 @@ Phase 2 extends kaiu with file management capabilities: marking, copy/cut/paste,
 - Create file/directory (`a`/`A`)
 
 **Pending in Phase 2**:
-- Undo last operation (`u`) - Task 2.15
 - Status bar absolute path display with `~` prefix - Task 2.14
 
 ## Technical Context
@@ -314,55 +313,7 @@ fn enterRenameMode(self: *Self) void {
 }
 ```
 
-### 7. Undo State
-
-```zig
-pub const UndoOperation = enum {
-    delete,      // Restore deleted files
-    paste_copy,  // Remove copied files
-    paste_move,  // Move files back to original location
-    rename,      // Revert filename
-};
-
-pub const UndoState = struct {
-    allocator: std.mem.Allocator,
-    operation: ?UndoOperation,
-    // For delete: backup location of deleted files
-    backup_path: ?[]const u8,
-    // For paste: destination paths (to delete/move back)
-    dest_paths: std.ArrayList([]const u8),
-    // For paste_move/rename: original paths
-    source_paths: std.ArrayList([]const u8),
-    // For rename: original and new name
-    old_name: ?[]const u8,
-    new_name: ?[]const u8,
-
-    pub fn init(allocator: std.mem.Allocator) UndoState { ... }
-    pub fn deinit(self: *UndoState) void { ... }
-    pub fn clear(self: *UndoState) void { ... }
-
-    // Called after successful file operation
-    pub fn recordDelete(self: *UndoState, backup_path: []const u8) !void { ... }
-    pub fn recordPasteCopy(self: *UndoState, dest_paths: []const []const u8) !void { ... }
-    pub fn recordPasteMove(self: *UndoState, src_paths: []const []const u8, dest_paths: []const []const u8) !void { ... }
-    pub fn recordRename(self: *UndoState, old_name: []const u8, new_name: []const u8) !void { ... }
-};
-```
-
-**Delete Undo Strategy**:
-- Before deletion, move files to a temporary backup directory (`/tmp/kaiu-undo-{pid}/`)
-- On undo, move files back from backup to original location
-- Clear backup on next operation or app exit
-
-**Paste Undo Strategy**:
-- For copy: simply delete the copied files
-- For move: move files back to source_paths
-
-**Rename Undo Strategy**:
-- Store old_name and new_name
-- On undo, rename new_name back to old_name
-
-### 8. Status Bar Updates
+### 7. Status Bar Updates
 
 Extend status bar to show:
 - Marked count: `2 marked` (when > 0)
@@ -414,7 +365,6 @@ stateDiagram-v2
     TreeView --> TreeView: y (yank)
     TreeView --> TreeView: d (cut)
     TreeView --> TreeView: p (paste)
-    TreeView --> TreeView: u (undo)
     TreeView --> Preview: o/l/Enter on file
     TreeView --> Search: /
     TreeView --> PathInput: gn
@@ -506,14 +456,6 @@ Based on User Story priorities from spec:
 - Context-sensitive hints
 - **Status bar path display**: Resolve `.` to absolute path with `~` prefix
 - Test edge cases
-
-### Phase 2.7: Undo Operations (P2 - US7)
-**Tasks**: 2.15
-- Add `UndoState` struct to track last operation
-- Store undo info for delete, paste (copy/move), rename
-- Implement `u` to trigger undo
-- Restore/revert based on operation type
-- Show feedback messages
 
 ## Already Implemented (Skip)
 
