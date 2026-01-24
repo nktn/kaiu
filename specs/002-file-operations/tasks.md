@@ -2,139 +2,139 @@
 
 ## Task 2.1: File Marking System
 
-- [ ] Add `marked` field to FileEntry or separate marked set
-- [ ] Implement `Space` to toggle mark on current file
-- [ ] Show visual indicator (`*`) for marked files
-- [ ] Track marked file count
-- [ ] Show marked count in status bar
+- [x] Add `marked` field to FileEntry or separate marked set
+- [x] Implement `Space` to toggle mark on current file
+- [x] Show visual indicator (`*`) for marked files
+- [x] Track marked file count
+- [x] Show marked count in status bar
 
 ---
 
 ## Task 2.2: Yank/Cut Operations
 
-- [ ] Create clipboard state (files list + operation type)
-- [ ] Implement `y` to yank marked files (or current if none marked)
-- [ ] Implement `d` to cut marked files (or current if none marked)
-- [ ] Show feedback message "Yanked N files" / "Cut N files"
-- [ ] Clear marks after yank/cut
+- [x] Create clipboard state (files list + operation type)
+- [x] Implement `y` to yank marked files (or current if none marked)
+- [x] Implement `d` to cut marked files (or current if none marked)
+- [x] Show feedback message "Yanked N files" / "Cut N files"
+- [x] Clear marks after yank/cut
 
 ---
 
 ## Task 2.3: Paste Operation
 
-- [ ] Implement `p` to paste files to current directory
-- [ ] Copy files for yank operation
-- [ ] Move files for cut operation (copy + delete source)
-- [ ] Handle filename conflicts (append number)
-- [ ] Show progress/feedback for large operations
-- [ ] Refresh tree after paste
+- [x] Implement `p` to paste files to current directory
+- [x] Copy files for yank operation
+- [x] Move files for cut operation (copy + delete source)
+- [x] Handle filename conflicts (append number)
+- [x] Show progress/feedback for large operations
+- [x] Refresh tree after paste
 
 ---
 
 ## Task 2.4: Delete with Confirmation
 
-- [ ] Implement `D` to trigger delete
-- [ ] Show confirmation dialog with file list
-- [ ] Implement `y` to confirm deletion
-- [ ] Implement `n` / `Esc` to cancel
-- [ ] Delete files/directories recursively
-- [ ] Handle permission errors gracefully
-- [ ] Refresh tree after delete
+- [x] Implement `D` to trigger delete
+- [x] Show confirmation dialog with file list
+- [x] Implement `y` to confirm deletion
+- [x] Implement `n` / `Esc` to cancel
+- [x] Delete files/directories recursively
+- [x] Handle permission errors gracefully
+- [x] Refresh tree after delete
 
 ---
 
 ## Task 2.5: Rename
 
-- [ ] Implement `r` to enter rename mode
-- [ ] Show inline input with current filename
-- [ ] Handle text input (printable chars, backspace)
-- [ ] Implement `Enter` to confirm rename
-- [ ] Implement `Esc` to cancel
-- [ ] Handle rename errors (exists, invalid name)
-- [ ] Refresh tree after rename
+- [x] Implement `r` to enter rename mode
+- [x] Show inline input with current filename
+- [x] Handle text input (printable chars, backspace)
+- [x] Implement `Enter` to confirm rename
+- [x] Implement `Esc` to cancel
+- [x] Handle rename errors (exists, invalid name)
+- [x] Refresh tree after rename
 
 ---
 
 ## Task 2.6: Create File/Directory
 
-- [ ] Implement `a` to enter new file mode
-- [ ] Implement `A` to enter new directory mode
-- [ ] Show input at bottom "New file: " / "New dir: "
-- [ ] Create file/directory on `Enter`
-- [ ] Implement `Esc` to cancel
-- [ ] Handle errors (exists, invalid name, permission)
-- [ ] Refresh tree and select new item
+- [x] Implement `a` to enter new file mode
+- [x] Implement `A` to enter new directory mode
+- [x] Show input at bottom "New file: " / "New dir: "
+- [x] Create file/directory on `Enter`
+- [x] Implement `Esc` to cancel
+- [x] Handle errors (exists, invalid name, permission)
+- [x] Refresh tree and select new item
 
 ---
 
 ## Task 2.7: Clipboard (Path Copy)
 
-- [ ] Implement `c` to copy full path to clipboard
-- [ ] Implement `C` to copy filename to clipboard
-- [ ] Use OSC 52 escape sequence for clipboard
-- [ ] Show feedback "Copied: <path>"
-- [ ] Handle clipboard not available
+- [x] Implement `c` to copy full path to clipboard
+- [x] Implement `C` to copy filename to clipboard
+- [x] Use OSC 52 escape sequence for clipboard
+- [x] Show feedback "Copied: <path>"
+- [x] Handle clipboard not available
 
 ---
 
 ## Task 2.8: Search Mode
 
-- [ ] Implement `/` to enter search mode
-- [ ] Show search input at bottom
-- [ ] Capture keystrokes in search mode
-- [ ] Highlight matching text with inverted colors (reverse video)
-- [ ] Case-insensitive matching
-- [ ] Show match count "[N matches]"
+- [x] Implement `/` to enter search mode
+- [x] Show search input at bottom
+- [x] Capture keystrokes in search mode
+- [x] Highlight matching text with inverted colors (reverse video)
+- [x] Case-insensitive matching
+- [x] Show match count "[N matches]"
 
 ---
 
 ## Task 2.9: Search Navigation
 
-- [ ] Implement `Enter` to confirm search and jump to first match
-- [ ] Implement `n` to jump to next match
-- [ ] Implement `N` to jump to previous match
-- [ ] Wrap around at list ends
-- [ ] Implement `Esc` to cancel search
-- [ ] Maintain match highlighting after search confirm
+- [x] Implement `Enter` to confirm search and jump to first match
+- [x] Implement `n` to jump to next match
+- [x] Implement `N` to jump to previous match
+- [x] Wrap around at list ends
+- [x] Implement `Esc` to cancel search
+- [x] Maintain match highlighting after search confirm
 
 ---
 
 ## Task 2.10: Jump Navigation
 
-- [ ] Implement `gg` (two-key sequence) to jump to first item
-- [ ] Implement `G` to jump to last item
-- [ ] Handle pending key state for `g` prefix
-- [ ] Show pending key indicator "g-" in status bar
+- [x] Implement `gg` (two-key sequence) to jump to first item
+- [x] Implement `G` to jump to last item
+- [x] Handle pending key state for `g` prefix
+- [x] Show pending key indicator "g-" in status bar
 
 ---
 
 ## Task 2.11: Help Overlay
 
-- [ ] Implement `?` to show help overlay
-- [ ] Create help overlay UI with all keybindings
-- [ ] Organize keybindings by category
-- [ ] Any key dismisses overlay
-- [ ] Overlay covers main UI but preserves state
+- [x] Implement `?` to show help overlay
+- [x] Create help overlay UI with all keybindings
+- [x] Organize keybindings by category
+- [x] Any key dismisses overlay
+- [x] Overlay covers main UI but preserves state
 
 ---
 
 ## Task 2.12: Input Mode Infrastructure
 
-- [ ] Create reusable text input component
-- [ ] Handle printable character input
-- [ ] Handle backspace/delete
-- [ ] Handle cursor movement (optional)
-- [ ] Share between rename, new file, new dir, search
+- [x] Create reusable text input component
+- [x] Handle printable character input
+- [x] Handle backspace/delete
+- [x] Handle cursor movement (optional)
+- [x] Share between rename, new file, new dir, search
 
 ---
 
 ## Task 2.13: Status Bar Enhancements
 
-- [ ] Show marked file count when > 0
-- [ ] Show clipboard state (N files yanked/cut)
-- [ ] Show search match info "[N/M]"
-- [ ] Show pending key indicator
-- [ ] Context-sensitive keybinding hints
+- [x] Show marked file count when > 0
+- [x] Show clipboard state (N files yanked/cut)
+- [x] Show search match info "[N/M]"
+- [x] Show pending key indicator
+- [x] Context-sensitive keybinding hints
 
 ---
 

@@ -10,6 +10,7 @@ TUI file explorer with Vim keybindings, written in Zig.
 - File preview with line numbers
 - Hidden files toggle
 - Path navigation (go to path)
+- File operations (mark, yank/cut/paste, delete, rename, create)
 - Clipboard support (OSC 52)
 - Mouse wheel scrolling
 
@@ -67,6 +68,19 @@ kaiu ~/.config    # Tilde expansion supported
 | `n` | Next search match |
 | `N` | Previous search match |
 | `Esc` | Clear search |
+
+### File Operations
+
+| Key | Action |
+|-----|--------|
+| `Space` | Toggle mark current file/directory |
+| `y` | Yank (copy) marked files or current file |
+| `d` | Cut marked files or current file |
+| `p` | Paste yanked/cut files |
+| `D` | Delete marked files or current file (with confirmation) |
+| `r` | Rename current file/directory |
+| `a` | Create new file in current directory |
+| `A` | Create new directory in current directory |
 
 ### Other
 

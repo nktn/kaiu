@@ -19,9 +19,17 @@ stateDiagram-v2
     TreeView --> TreeView: Tab (toggle dir)
     TreeView --> TreeView: R (reload)
     TreeView --> TreeView: Esc (clear search)
+    TreeView --> TreeView: Space (toggle mark)
+    TreeView --> TreeView: y (yank)
+    TreeView --> TreeView: d (cut)
+    TreeView --> TreeView: p (paste)
     TreeView --> Preview: o/l/Enter on file
     TreeView --> Search: /
     TreeView --> PathInput: gn
+    TreeView --> Rename: r
+    TreeView --> NewFile: a
+    TreeView --> NewDir: A
+    TreeView --> ConfirmDelete: D
     TreeView --> Help: ?
     TreeView --> [*]: q
 
@@ -30,6 +38,18 @@ stateDiagram-v2
 
     PathInput --> TreeView: Enter (navigate)
     PathInput --> TreeView: Esc (cancel)
+
+    Rename --> TreeView: Enter (confirm rename)
+    Rename --> TreeView: Esc (cancel)
+
+    NewFile --> TreeView: Enter (create file)
+    NewFile --> TreeView: Esc (cancel)
+
+    NewDir --> TreeView: Enter (create dir)
+    NewDir --> TreeView: Esc (cancel)
+
+    ConfirmDelete --> TreeView: y (delete)
+    ConfirmDelete --> TreeView: n/Esc (cancel)
 
     Preview --> TreeView: o/h (close)
     Preview --> [*]: q
@@ -58,6 +78,14 @@ stateDiagram-v2
 | TreeView | `Esc` | TreeView | clearSearch() |
 | TreeView | `gn` | PathInput | enterPathInputMode() |
 | TreeView | `c`/`C` | TreeView | copyPathToClipboard() |
+| TreeView | `Space` | TreeView | toggleMark() |
+| TreeView | `y` | TreeView | yankFiles() |
+| TreeView | `d` | TreeView | cutFiles() |
+| TreeView | `p` | TreeView | pasteFiles() |
+| TreeView | `r` | Rename | enterRenameMode() |
+| TreeView | `a` | NewFile | enterNewFileMode() |
+| TreeView | `A` | NewDir | enterNewDirMode() |
+| TreeView | `D` | ConfirmDelete | enterConfirmDeleteMode() |
 | TreeView | `?` | Help | enterHelpMode() |
 | TreeView | `q` | Quit | cleanup() |
 | Search | `Enter` | TreeView | confirm search |
@@ -65,6 +93,14 @@ stateDiagram-v2
 | Search | char | Search | updateSearchResults() |
 | PathInput | `Enter` | TreeView | navigateToInputPath() |
 | PathInput | `Esc` | TreeView | cancel |
+| Rename | `Enter` | TreeView | performRename() |
+| Rename | `Esc` | TreeView | cancel |
+| NewFile | `Enter` | TreeView | createFile() |
+| NewFile | `Esc` | TreeView | cancel |
+| NewDir | `Enter` | TreeView | createDirectory() |
+| NewDir | `Esc` | TreeView | cancel |
+| ConfirmDelete | `y` | TreeView | performDelete() |
+| ConfirmDelete | `n`/`Esc` | TreeView | cancel |
 | Preview | `o`/`h` | TreeView | closePreview() |
 | Preview | `j`/`k` | Preview | scroll |
 | Preview | `q` | Quit | cleanup() |
@@ -74,11 +110,15 @@ stateDiagram-v2
 
 ```zig
 pub const AppMode = enum {
-    tree_view,   // Main mode - file tree navigation
-    preview,     // Full-screen file preview
-    search,      // Incremental search mode
-    path_input,  // Go to path mode
-    help,        // Help overlay
+    tree_view,       // Main mode - file tree navigation
+    preview,         // Full-screen file preview
+    search,          // Incremental search mode
+    path_input,      // Go to path mode
+    rename,          // Rename file/directory
+    new_file,        // Create new file
+    new_dir,         // Create new directory
+    confirm_delete,  // Delete confirmation
+    help,            // Help overlay
 };
 ```
 
@@ -296,6 +336,58 @@ pub const App = struct {
 - 0件マッチ時も検索状態として扱う
 - ESC で検索解除可能
 - ステータスバーとヒントの表示切替に使用
+
+### [2026-01-24] Input Mode Infrastructure (Phase 2)
+**Context**: rename, new file, new dir, confirm delete で再利用可能な入力が必要
+**Decision**: AppMode を拡張して新しい入力モードを追加、既存の input_buffer を共有
+**Rationale**:
+- 既に search と path_input で input_buffer を使用するパターンがある
+- 新しいモード: `rename`, `new_file`, `new_dir`, `confirm_delete`
+- モードごとにプロンプトと Enter 時の動作を切り替え
+- 別モジュール作成よりも凝集度を優先
+**New Modes**:
+- `rename`: r キーでトリガー、現在のファイル名を初期値として input_buffer に設定
+- `new_file`: a キーでトリガー、空の input_buffer で開始
+- `new_dir`: A キーでトリガー、空の input_buffer で開始
+- `confirm_delete`: D キーでトリガー、y/n で確認
+
+### [2026-01-24] File Marking System (Phase 2)
+**Context**: 複数ファイルの一括操作のためマーキングシステムが必要
+**Decision**: App に `marked_files: std.StringHashMap(void)` を追加
+**Rationale**:
+- パスをキーとした HashSet でマーク状態を管理
+- ツリー再読み込み後もパスでマーク状態を復元可能
+- FileEntry に marked フィールドを追加するより柔軟
+
+### [2026-01-24] Clipboard State for Yank/Cut (Phase 2)
+**Context**: yank/cut したファイルの一時保存が必要
+**Decision**: App に ClipboardState struct を追加
+**Rationale**:
+- `operation: enum { copy, cut }` で操作種別を保持
+- `files: std.ArrayList([]const u8)` でパスリストを保持
+- paste 時に operation に応じてコピーまたは移動
+
+### [2026-01-24] File Operations Error Handling (Phase 2)
+**Context**: ファイル操作 (yank/cut/paste/delete/rename/create) のエラーハンドリング
+**Decision**: 各操作でエラーを catch して status_message で通知
+**Rationale**:
+- ユーザーフレンドリーなエラー表示
+- 操作失敗時も TUI は安定動作を継続
+- ステータスバーに "Error: ..." メッセージを表示
+**Implementation**:
+- `yankFiles()`, `cutFiles()`: marked_files が空の場合はカーソル位置を使用
+- `pasteFiles()`: ファイル名の衝突を検出して数値サフィックス追加
+- `deleteFiles()`: confirm_delete モードで y/n 確認
+- `renameFile()`: rename モードで新しい名前を入力
+- `createFile()`/`createDirectory()`: new_file/new_dir モードで名前を入力
+
+### [2026-01-24] Tree Reload After File Operations (Phase 2)
+**Context**: paste/delete/rename/create 後のツリー再読み込み
+**Decision**: 操作完了後に reloadTree() を呼び出し
+**Rationale**:
+- ファイルシステム変更を即座に反映
+- マーク状態は marked_files HashSet で保持されるため、パスベースで復元可能
+- カーソル位置は可能な限り維持 (該当エントリが存在すればパスで検索)
 
 ---
 

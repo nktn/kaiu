@@ -22,7 +22,11 @@ See @.claude/rules/architecture.md for state machine and design decisions.
 
 ## Keybindings
 
-`j`/`k` move, `h` collapse/close, `l`/`Enter` expand/open, `.` toggle hidden, `o` preview toggle, `q` quit.
+Navigation: `j`/`k` move, `h` collapse/close, `l`/`Enter` expand/open, `gg`/`G` jump, `.` toggle hidden, `/` search, `?` help.
+
+File operations: `Space` mark, `y` yank, `d` cut, `p` paste, `D` delete, `r` rename, `a`/`A` create.
+
+Other: `o` preview toggle, `c`/`C` clipboard, `q` quit.
 
 ## Workflow
 
@@ -43,6 +47,6 @@ See @.claude/rules/architecture.md for state machine and design decisions.
 
 ## Constraints
 
-- Not a file manager (no copy/move/delete)
 - Ghostty terminal primary target
 - Zero config philosophy
+- Minimal file manager operations (mark, yank/cut/paste, delete with confirmation, rename, create)
