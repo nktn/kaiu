@@ -27,7 +27,7 @@ Verify that tasks.md comprehensively covers all requirements from spec.md before
 
 **STRICTLY READ-ONLY**: Do **not** modify any files. Output a verification report with coverage matrix and gap analysis.
 
-**Constitution Authority**: The project constitution (`.specify/memory/constitution.md`) principles are non-negotiable. Constitution conflicts are automatically CRITICAL.
+**Constitution Authority**: The project constitution (`specs/constitution.md`) principles are non-negotiable. Constitution conflicts are automatically CRITICAL.
 
 ## Execution Steps
 
@@ -37,7 +37,7 @@ Run `.specify/scripts/bash/check-prerequisites.sh --json --require-tasks --inclu
 
 - SPEC = FEATURE_DIR/spec.md
 - TASKS = FEATURE_DIR/tasks.md
-- CONSTITUTION = .specify/memory/constitution.md (optional)
+- CONSTITUTION = specs/constitution.md (optional)
 
 Abort with an error message if spec.md or tasks.md is missing.
 

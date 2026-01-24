@@ -1,6 +1,6 @@
 ---
 description: Execute the implementation planning workflow using the plan template to generate design artifacts.
-handoffs: 
+handoffs:
   - label: Create Tasks
     agent: speckit.tasks
     prompt: Break the plan into tasks
@@ -20,20 +20,47 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 ## Outline
 
-1. **Setup**: Run `.specify/scripts/bash/setup-plan.sh --json` from repo root and parse JSON for FEATURE_SPEC, IMPL_PLAN, SPECS_DIR, BRANCH. For single quotes in args like "I'm Groot", use escape syntax: e.g 'I'\''m Groot' (or double-quote if possible: "I'm Groot").
+1. **Setup**: Run `.specify/scripts/bash/check-prerequisites.sh --json --paths-only` from repo root and parse JSON for FEATURE_DIR, FEATURE_SPEC, IMPL_PLAN.
 
-2. **Load context**: Read FEATURE_SPEC and `.specify/memory/constitution.md`. Load IMPL_PLAN template (already copied).
+2. **Detect project type**: Check for `build.zig` at repo root.
+   - If exists → **Zig project** → Use zig-architect workflow (see below)
+   - Otherwise → Use standard workflow
 
-3. **Execute plan workflow**: Follow the structure in IMPL_PLAN template to:
-   - Fill Technical Context (mark unknowns as "NEEDS CLARIFICATION")
-   - Fill Constitution Check section from constitution
+3. **Load context**: Read FEATURE_SPEC and `specs/constitution.md`.
+
+4. **Execute plan workflow** (based on project type).
+
+5. **Stop and report**: Report FEATURE_DIR, IMPL_PLAN path, and generated artifacts.
+
+## Zig Project Workflow
+
+For Zig projects, use the `zig-architect` agent:
+
+1. **Invoke zig-architect**: Use the Task tool with `subagent_type: zig-architect` to:
+   - Read the spec at FEATURE_SPEC
+   - Read existing architecture at `.claude/rules/architecture.md` (参照のみ)
+   - Create plan.md at IMPL_PLAN with:
+     - Technical Context (Zig version, libvaxis, etc.)
+     - Constitution Check
+     - Architecture decisions (state machine, memory strategy, modules)
+     - Implementation phases aligned with User Story priorities
+
+2. **Output**: plan.md のみ
+
+**Note**: architecture.md の更新は `/implement` 実行時に行う (実装時に詳細が確定するため)
+
+## Standard Workflow (Non-Zig)
+
+1. **Load IMPL_PLAN template** and fill:
+   - Technical Context (mark unknowns as "NEEDS CLARIFICATION")
+   - Constitution Check section from constitution
    - Evaluate gates (ERROR if violations unjustified)
-   - Phase 0: Generate research.md (resolve all NEEDS CLARIFICATION)
-   - Phase 1: Generate data-model.md, contracts/, quickstart.md
-   - Phase 1: Update agent context by running the agent script
-   - Re-evaluate Constitution Check post-design
 
-4. **Stop and report**: Command ends after Phase 2 planning. Report branch, IMPL_PLAN path, and generated artifacts.
+2. **Phase 0**: Generate research.md (resolve all NEEDS CLARIFICATION)
+
+3. **Phase 1**: Generate data-model.md, contracts/, quickstart.md
+
+4. **Phase 1**: Update agent context by running `.specify/scripts/bash/update-agent-context.sh claude`
 
 ## Phases
 
