@@ -1712,6 +1712,7 @@ fn isBinaryContent(content: []const u8) bool {
 }
 
 /// Copy a directory recursively
+/// Returns error if any file copy fails (to prevent data loss on cut operations)
 fn copyDirRecursive(src_path: []const u8, dest_path: []const u8) !void {
     // Create destination directory
     std.fs.cwd().makeDir(dest_path) catch |err| {
@@ -1727,7 +1728,7 @@ fn copyDirRecursive(src_path: []const u8, dest_path: []const u8) !void {
     var fba = std.heap.FixedBufferAllocator.init(&buf);
     const allocator = fba.allocator();
 
-    // Iterate and copy
+    // Iterate and copy - propagate errors to prevent partial copy + delete
     var iter = src_dir.iterate();
     while (try iter.next()) |entry| {
         fba.reset();
@@ -1737,7 +1738,8 @@ fn copyDirRecursive(src_path: []const u8, dest_path: []const u8) !void {
         if (entry.kind == .directory) {
             try copyDirRecursive(src_child, dest_child);
         } else {
-            std.fs.cwd().copyFile(src_child, std.fs.cwd(), dest_child, .{}) catch {};
+            // Propagate error instead of swallowing it
+            try std.fs.cwd().copyFile(src_child, std.fs.cwd(), dest_child, .{});
         }
     }
 }
