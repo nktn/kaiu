@@ -1074,6 +1074,8 @@ pub const App = struct {
         }
 
         if (success_count > 0) {
+            try self.reloadTree();
+            // Set status message AFTER reloadTree (which sets "Reloaded")
             const fail_count = total_count - success_count;
             if (fail_count == 0) {
                 // All succeeded
@@ -1086,7 +1088,6 @@ pub const App = struct {
                 // Partial success
                 self.status_message = std.fmt.bufPrint(&self.status_message_buf, "Pasted {d} files ({d} failed)", .{ success_count, fail_count }) catch "Pasted (some failed)";
             }
-            try self.reloadTree();
         } else {
             self.status_message = "Paste failed";
         }
