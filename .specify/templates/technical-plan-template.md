@@ -1,8 +1,8 @@
 # Technical Plan: {FEATURE_NAME}
 
-**Issue**: #{ISSUE_NUMBER}
-**Branch**: `technical/{ISSUE_NUMBER}-{SHORT_NAME}`
-**Created**: {DATE}
+- **Issue**: #{ISSUE_NUMBER}
+- **Branch**: `technical/{ISSUE_NUMBER}-{SHORT_NAME}`
+- **Created**: {DATE}
 
 ## 概要
 

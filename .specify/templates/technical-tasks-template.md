@@ -14,8 +14,8 @@
 
 ## Phase 3: 検証・完了
 
-- [ ] T0XX ドキュメント更新 `.claude/rules/*.md`
-- [ ] T0XX 動作確認
+- [ ] T004 ドキュメント更新 `.claude/rules/*.md`
+- [ ] T005 動作確認
 
 ---
 

@@ -26,7 +26,7 @@ $ARGUMENTS
 │  Phase 1: Issue Analysis & Specs Creation                   │
 │  ├── 入力を解析 (新規 or 既存 Issue)                          │
 │  ├── 関連 Issue を収集・分析                                  │
-│  ├── specs/technical/{issue}-{name}/ を作成                  │
+│  ├── specs/technical/{issue-number}-{short-name}/ を作成     │
 │  │   ├── plan.md (方針・設計)                                │
 │  │   └── tasks.md (タスクリスト)                             │
 │  └── Branch 作成 (未作成の場合)                               │
@@ -101,7 +101,7 @@ gh issue list --search "keyword" --state open
 Issue の内容から plan.md と tasks.md を作成:
 
 ```bash
-# ディレクトリ作成
+# ディレクトリ作成 (例: specs/technical/25-technical-track-specs)
 mkdir -p specs/technical/{issue-number}-{short-name}
 ```
 
@@ -125,7 +125,7 @@ mkdir -p specs/technical/{issue-number}-{short-name}
 === Technical Track 実行計画 ===
 
 ■ 参照 Issue: #25
-■ Specs: specs/technical/25-technical-track-specs/
+■ Specs: `specs/technical/25-technical-track-specs/`
 
 ■ plan.md 概要
 - 方針: {概要}

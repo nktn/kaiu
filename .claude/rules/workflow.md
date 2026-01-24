@@ -32,7 +32,7 @@ kaiu 開発における計画から実装までの全体フロー。
     │   - 関連する他の Issue も確認
     │
     ▼
-specs/technical/{issue}-{name}/ を作成
+specs/technical/{issue-number}-{short-name}/ を作成
     │   ├── plan.md (方針・設計)
     │   └── tasks.md (タスクリスト)
     │
@@ -71,7 +71,7 @@ Issue も自動クローズ
 
 **実行内容**:
 1. 関連 Issue を収集・分析
-2. `specs/technical/{issue}-{name}/` を作成
+2. `specs/technical/{issue-number}-{short-name}/` を作成
    - plan.md (方針・設計)
    - tasks.md (タスクリスト)
 3. Branch を作成 (`technical/{issue-number}-{short-description}`)
@@ -103,7 +103,7 @@ Feature Track との違い:
 - speckit-task-verifier をスキップ
 
 **実行フロー**:
-1. `specs/technical/{issue}-{name}/tasks.md` を読み込み
+1. `specs/technical/{issue-number}-{short-name}/tasks.md` を読み込み
 2. タスクごとに: zig-architect → zig-tdd → (失敗時) zig-build-resolver
 3. 全タスク完了後: zig-refactor-cleaner
 4. doc-updater
