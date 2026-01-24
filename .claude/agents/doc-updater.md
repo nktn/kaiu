@@ -85,6 +85,27 @@ stateDiagram-v2
 - **簡潔に**: 冗長な説明を避ける
 - **更新日を残す**: 必要に応じて更新日を記載
 
+## architecture.md と learned/ の分離
+
+**役割分担**:
+| ファイル | 役割 | 内容 |
+|---------|------|------|
+| `architecture.md` | kaiu 固有の設計決定 | 「何を決めたか」+ learned/ への参照 |
+| `learned/` | 汎用パターン | 「なぜそうなのか」（他プロジェクトでも使える知識） |
+
+**分離の判断基準**:
+- **architecture.md に書く**: kaiu 特有の決定、実装詳細
+- **learned/ に書く**: 他プロジェクトでも適用可能な知識、業界慣例
+
+**参照形式** (architecture.md → learned/):
+```markdown
+**Rationale**: See `learned/tui-file-explorer-conventions.md`
+```
+
+**例**:
+- 「undo 機能を削除」という決定 → architecture.md
+- 「TUI ファイルエクスプローラーは一般的に undo を持たない」という知識 → learned/
+
 ---
 
 ## パターン学習 (/learn 統合)

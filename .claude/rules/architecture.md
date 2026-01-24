@@ -282,6 +282,21 @@ pub const App = struct {
 
 <!-- zig-architect が判断時に追記 -->
 
+### 記録ガイドライン
+
+**役割分担**:
+- **architecture.md**: kaiu 固有の設計決定 (「何を決めたか」)
+- **learned/**: 汎用パターン (「なぜそうなのか」- 他プロジェクトでも使える知識)
+
+**参照形式**: 汎用的な Rationale は learned/ に分離し、参照で記載:
+```markdown
+**Rationale**: See `learned/[pattern-name].md`
+```
+
+**判断基準**:
+- kaiu 特有の決定 → ここに詳細を記載
+- 他プロジェクトでも適用可能な知識 → learned/ に保存して参照
+
 ### [2026-01-22] FileTree Memory Strategy
 **Context**: FileTree のノード群にメモリ割り当て戦略が必要
 **Decision**: GeneralPurposeAllocator でエントリごとに割り当て

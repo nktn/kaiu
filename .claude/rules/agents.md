@@ -147,6 +147,11 @@ Agent の使い分けと実行戦略。
 - build.zig パターン
 - メモリ管理戦略
 
+**architecture.md と learned/ の分離**:
+- `architecture.md`: kaiu 固有の設計決定 (「何を決めたか」)
+- `learned/`: 汎用パターン (「なぜそうなのか」- 他プロジェクトでも使える知識)
+- 汎用的な Rationale は learned/ に保存し、architecture.md から参照
+
 **出力**: 更新レポート、`.claude/skills/learned/` にパターン保存
 
 ## Execution Strategy
