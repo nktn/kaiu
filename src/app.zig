@@ -75,6 +75,7 @@ pub const App = struct {
 
     // Status message (for feedback like "Copied: ...")
     status_message: ?[]const u8,
+    status_message_buf: [64]u8, // Buffer for dynamic status messages
 
     // Input buffer for search/path input modes
     input_buffer: std.ArrayList(u8),
@@ -125,6 +126,7 @@ pub const App = struct {
             .tty_buf = undefined,
             .pending_key = .{ .key = null, .timestamp = 0 },
             .status_message = null,
+            .status_message_buf = undefined,
             .input_buffer = .empty,
             .search_query = null,
             .search_matches = .empty,
@@ -1018,6 +1020,7 @@ pub const App = struct {
         // Get destination directory from cursor position
         const dest_dir = self.getCurrentDirectory(ft);
 
+        const total_count = self.clipboard_files.items.len;
         var success_count: usize = 0;
         for (self.clipboard_files.items) |src_path| {
             const filename = std.fs.path.basename(src_path);
@@ -1071,8 +1074,20 @@ pub const App = struct {
         }
 
         if (success_count > 0) {
-            self.status_message = "Pasted";
             try self.reloadTree();
+            // Set status message AFTER reloadTree (which sets "Reloaded")
+            const fail_count = total_count - success_count;
+            if (fail_count == 0) {
+                // All succeeded
+                if (success_count == 1) {
+                    self.status_message = "Pasted 1 file";
+                } else {
+                    self.status_message = std.fmt.bufPrint(&self.status_message_buf, "Pasted {d} files", .{success_count}) catch "Pasted";
+                }
+            } else {
+                // Partial success
+                self.status_message = std.fmt.bufPrint(&self.status_message_buf, "Pasted {d} files ({d} failed)", .{ success_count, fail_count }) catch "Pasted (some failed)";
+            }
         } else {
             self.status_message = "Paste failed";
         }
