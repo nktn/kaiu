@@ -860,6 +860,9 @@ pub const App = struct {
         self.file_tree = try tree.FileTree.init(self.allocator, target_dir);
         try self.file_tree.?.readDirectory();
 
+        // Clear marked files - paths are now invalid after tree change
+        self.marked_files.clearRetainingCapacity();
+
         self.cursor = 0;
         self.scroll_offset = 0;
         self.input_buffer.clearRetainingCapacity();
@@ -1347,6 +1350,8 @@ pub const App = struct {
 
         var deleted_count: usize = 0;
 
+        var total_count: usize = 0;
+
         if (self.marked_files.count() > 0) {
             // Delete all marked files
             var to_delete: std.ArrayList([]const u8) = .empty;
@@ -1358,6 +1363,7 @@ pub const App = struct {
                 try to_delete.append(self.allocator, key.*);
             }
 
+            total_count = to_delete.items.len;
             for (to_delete.items) |path| {
                 self.deletePathRecursive(path) catch {
                     // Continue deleting others even if one fails
@@ -1388,7 +1394,12 @@ pub const App = struct {
         }
 
         if (deleted_count > 0) {
-            self.status_message = "Deleted";
+            if (total_count > 0 and deleted_count < total_count) {
+                // Partial success
+                self.status_message = "Deleted (some failed)";
+            } else {
+                self.status_message = "Deleted";
+            }
             try self.reloadTree();
         } else {
             // All deletions failed
@@ -1400,41 +1411,21 @@ pub const App = struct {
 
     fn deletePathRecursive(self: *Self, path: []const u8) !void {
         _ = self;
-        // Use lstat to check the path itself, not what it points to
+        // Security: Check if path is a symlink FIRST before following it
         // This prevents symlink attacks where a symlink could cause deletion outside intended root
-        const stat = try std.fs.cwd().statFile(path);
 
-        // Check if it's a symlink first (statFile follows symlinks, so we need to check separately)
-        // For symlinks, just delete the link itself
-        const dir = std.fs.cwd();
-        var dir_handle = dir.openDir(std.fs.path.dirname(path) orelse ".", .{}) catch {
-            // If we can't open parent dir, try direct deletion
-            if (stat.kind == .directory) {
-                try std.fs.cwd().deleteTree(path);
-            } else {
-                try std.fs.cwd().deleteFile(path);
-            }
+        // Try to read link to detect symlink (readLink fails on non-symlinks)
+        var link_buf: [std.fs.max_path_bytes]u8 = undefined;
+        if (std.fs.cwd().readLink(path, &link_buf)) |_| {
+            // It's a symlink - delete only the symlink itself, not the target
+            try std.fs.cwd().deleteFile(path);
             return;
-        };
-        defer dir_handle.close();
-
-        const basename = std.fs.path.basename(path);
-        const lstat = dir_handle.statFile(basename) catch {
-            // Fallback to regular deletion
-            if (stat.kind == .directory) {
-                try std.fs.cwd().deleteTree(path);
-            } else {
-                try std.fs.cwd().deleteFile(path);
-            }
-            return;
-        };
-
-        // If it's a symlink, delete only the symlink itself (not what it points to)
-        if (lstat.kind == .sym_link) {
-            try dir_handle.deleteFile(basename);
-            return;
+        } else |_| {
+            // Not a symlink, continue with normal deletion
         }
 
+        // Now safe to check what it actually is
+        const stat = try std.fs.cwd().statFile(path);
         if (stat.kind == .directory) {
             try std.fs.cwd().deleteTree(path);
         } else {
