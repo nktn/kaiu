@@ -97,6 +97,7 @@ pub const App = struct {
     // Undo state
     undo_state: UndoState,
     undo_staging_dir: ?[]const u8,
+    undo_staging_counter: u32,
 
     const Self = @This();
 
@@ -195,6 +196,7 @@ pub const App = struct {
             .rename_target_path = null,
             .undo_state = UndoState.init(allocator),
             .undo_staging_dir = null,
+            .undo_staging_counter = 0,
         };
 
         // Initialize undo staging directory
@@ -1530,7 +1532,18 @@ pub const App = struct {
     }
 
     /// Stage a file for undo by moving it to staging directory
+    /// Security: symlinks are deleted directly without staging (not undoable)
     fn stageFileForUndo(self: *Self, path: []const u8) !void {
+        // Security: Check for symlink FIRST to prevent symlink attacks
+        var link_buf: [std.fs.max_path_bytes]u8 = undefined;
+        if (std.fs.cwd().readLink(path, &link_buf)) |_| {
+            // It's a symlink - delete directly without staging (not undoable)
+            try std.fs.cwd().deleteFile(path);
+            return;
+        } else |_| {
+            // Not a symlink, continue with staging
+        }
+
         if (self.undo_staging_dir == null) {
             // Fallback to direct delete if no staging dir
             try self.deletePathRecursive(path);
@@ -1538,28 +1551,25 @@ pub const App = struct {
         }
         const staging_dir = self.undo_staging_dir.?;
 
-        // Generate unique name in staging dir
+        // Generate unique name in staging dir with counter to avoid collisions
         const basename = std.fs.path.basename(path);
         const timestamp = std.time.milliTimestamp();
-        const staging_path = try std.fmt.allocPrint(self.allocator, "{s}/{d}_{s}", .{ staging_dir, timestamp, basename });
+        self.undo_staging_counter += 1;
+        const staging_path = try std.fmt.allocPrint(self.allocator, "{s}/{d}_{d}_{s}", .{ staging_dir, timestamp, self.undo_staging_counter, basename });
         defer self.allocator.free(staging_path);
 
         // Move file to staging (rename is fast if same filesystem)
         std.fs.cwd().rename(path, staging_path) catch |err| {
-            // If rename fails (cross-device), fall back to copy+delete
+            // If rename fails (cross-device), fall back to copy+delete with symlink safety
             if (err == error.RenameAcrossMountPoints) {
                 const stat = try std.fs.cwd().statFile(path);
                 if (stat.kind == .directory) {
-                    try copyDirRecursive(path, staging_path);
+                    try copyDirRecursiveSafe(path, staging_path);
                 } else {
                     try std.fs.cwd().copyFile(path, std.fs.cwd(), staging_path, .{});
                 }
-                // Delete original after successful copy
-                if (stat.kind == .directory) {
-                    try std.fs.cwd().deleteTree(path);
-                } else {
-                    try std.fs.cwd().deleteFile(path);
-                }
+                // Delete original after successful copy using safe recursive delete
+                try self.deletePathRecursive(path);
             } else {
                 return err;
             }
@@ -1602,14 +1612,37 @@ pub const App = struct {
     // ===== Undo Operations =====
 
     fn initUndoStagingDir(self: *Self) !void {
-        // Create staging directory: /tmp/kaiu-undo-{pid}/
+        // Create staging directory with random suffix for security
+        // Format: /tmp/kaiu-undo-{pid}-{random}/
         const pid = std.c.getpid();
-        const staging_path = try std.fmt.allocPrint(self.allocator, "/tmp/kaiu-undo-{d}", .{pid});
+
+        // Generate random suffix using timestamp
+        const nano = std.time.nanoTimestamp();
+        var prng = std.Random.DefaultPrng.init(@truncate(@as(u128, @bitCast(nano))));
+        const random_suffix = prng.random().int(u32);
+
+        const staging_path = try std.fmt.allocPrint(self.allocator, "/tmp/kaiu-undo-{d}-{x}", .{ pid, random_suffix });
         errdefer self.allocator.free(staging_path);
 
-        // Create directory (ignore if exists)
+        // Security: Check if path already exists (could be attacker-created)
+        var link_buf: [std.fs.max_path_bytes]u8 = undefined;
+        if (std.fs.cwd().readLink(staging_path, &link_buf)) |_| {
+            // Pre-existing symlink - refuse to use
+            self.allocator.free(staging_path);
+            return error.AccessDenied;
+        } else |_| {}
+
+        // Check if path exists as regular file/dir (shouldn't with random suffix)
+        if (std.fs.cwd().statFile(staging_path)) |_| {
+            // Pre-existing path - refuse to use for security
+            self.allocator.free(staging_path);
+            return error.PathAlreadyExists;
+        } else |_| {}
+
+        // Create new directory
         std.fs.cwd().makeDir(staging_path) catch |err| {
-            if (err != error.PathAlreadyExists) return err;
+            self.allocator.free(staging_path);
+            return err;
         };
 
         self.undo_staging_dir = staging_path;
@@ -1630,60 +1663,100 @@ pub const App = struct {
             return;
         }
 
+        var success_count: usize = 0;
+        const total_count = self.undo_state.entries.items.len;
+
         switch (self.undo_state.operation) {
             .none => {
                 self.status_message = "Nothing to undo";
+                return;
             },
             .delete => {
                 // Restore from staging directory
                 for (self.undo_state.entries.items) |entry| {
-                    std.fs.cwd().rename(entry.dest_path, entry.src_path) catch |err| {
-                        // Try copy+delete if rename fails
-                        if (err == error.RenameAcrossMountPoints) {
-                            const stat = std.fs.cwd().statFile(entry.dest_path) catch continue;
-                            if (stat.kind == .directory) {
-                                copyDirRecursive(entry.dest_path, entry.src_path) catch continue;
-                                std.fs.cwd().deleteTree(entry.dest_path) catch {};
+                    const restored = blk: {
+                        std.fs.cwd().rename(entry.dest_path, entry.src_path) catch |err| {
+                            // Try copy+delete if rename fails
+                            if (err == error.RenameAcrossMountPoints) {
+                                const stat = std.fs.cwd().statFile(entry.dest_path) catch break :blk false;
+                                if (stat.kind == .directory) {
+                                    copyDirRecursiveSafe(entry.dest_path, entry.src_path) catch break :blk false;
+                                    std.fs.cwd().deleteTree(entry.dest_path) catch {};
+                                } else {
+                                    std.fs.cwd().copyFile(entry.dest_path, std.fs.cwd(), entry.src_path, .{}) catch break :blk false;
+                                    std.fs.cwd().deleteFile(entry.dest_path) catch {};
+                                }
                             } else {
-                                std.fs.cwd().copyFile(entry.dest_path, std.fs.cwd(), entry.src_path, .{}) catch continue;
-                                std.fs.cwd().deleteFile(entry.dest_path) catch {};
+                                break :blk false;
                             }
-                        } else {
-                            continue;
-                        }
+                        };
+                        break :blk true;
                     };
+                    if (restored) success_count += 1;
                 }
-                self.status_message = "Undone: delete";
+                if (success_count == total_count) {
+                    self.status_message = "Undone: delete";
+                } else if (success_count > 0) {
+                    self.status_message = "Undone: delete (some failed)";
+                } else {
+                    self.status_message = "Undo failed";
+                    return; // Keep undo state on total failure
+                }
             },
             .move => {
                 // Move files back to original location
                 for (self.undo_state.entries.items) |entry| {
-                    std.fs.cwd().rename(entry.dest_path, entry.src_path) catch continue;
+                    std.fs.cwd().rename(entry.dest_path, entry.src_path) catch {
+                        continue;
+                    };
+                    success_count += 1;
                 }
-                self.status_message = "Undone: move";
+                if (success_count == total_count) {
+                    self.status_message = "Undone: move";
+                } else if (success_count > 0) {
+                    self.status_message = "Undone: move (some failed)";
+                } else {
+                    self.status_message = "Undo failed";
+                    return; // Keep undo state on total failure
+                }
             },
             .copy => {
-                // Delete the copied files
+                // Delete the copied files using safe delete
                 for (self.undo_state.entries.items) |entry| {
-                    const stat = std.fs.cwd().statFile(entry.dest_path) catch continue;
-                    if (stat.kind == .directory) {
-                        std.fs.cwd().deleteTree(entry.dest_path) catch continue;
-                    } else {
-                        std.fs.cwd().deleteFile(entry.dest_path) catch continue;
-                    }
+                    self.deletePathRecursive(entry.dest_path) catch {
+                        continue;
+                    };
+                    success_count += 1;
                 }
-                self.status_message = "Undone: copy";
+                if (success_count == total_count) {
+                    self.status_message = "Undone: copy";
+                } else if (success_count > 0) {
+                    self.status_message = "Undone: copy (some failed)";
+                } else {
+                    self.status_message = "Undo failed";
+                    return; // Keep undo state on total failure
+                }
             },
             .rename => {
                 // Rename back to original name
                 for (self.undo_state.entries.items) |entry| {
-                    std.fs.cwd().rename(entry.dest_path, entry.src_path) catch continue;
+                    std.fs.cwd().rename(entry.dest_path, entry.src_path) catch {
+                        continue;
+                    };
+                    success_count += 1;
                 }
-                self.status_message = "Undone: rename";
+                if (success_count == total_count) {
+                    self.status_message = "Undone: rename";
+                } else if (success_count > 0) {
+                    self.status_message = "Undone: rename (some failed)";
+                } else {
+                    self.status_message = "Undo failed";
+                    return; // Keep undo state on total failure
+                }
             },
         }
 
-        // Clear undo state after successful undo
+        // Clear undo state only on success or partial success
         self.undo_state.clear(self.allocator);
         try self.reloadTree();
     }
@@ -2012,6 +2085,51 @@ fn copyDirRecursive(src_path: []const u8, dest_path: []const u8) !void {
             try copyDirRecursive(src_child, dest_child);
         } else {
             // Propagate error instead of swallowing it
+            try std.fs.cwd().copyFile(src_child, std.fs.cwd(), dest_child, .{});
+        }
+    }
+}
+
+/// Copy a directory recursively with symlink safety
+/// Symlinks are skipped to prevent following links outside the intended tree
+fn copyDirRecursiveSafe(src_path: []const u8, dest_path: []const u8) !void {
+    // Security: Check if source is a symlink
+    var link_buf: [std.fs.max_path_bytes]u8 = undefined;
+    if (std.fs.cwd().readLink(src_path, &link_buf)) |_| {
+        // Skip symlinks during safe copy
+        return;
+    } else |_| {}
+
+    // Create destination directory
+    std.fs.cwd().makeDir(dest_path) catch |err| {
+        if (err != error.PathAlreadyExists) return err;
+    };
+
+    // Open source directory
+    var src_dir = try std.fs.cwd().openDir(src_path, .{ .iterate = true });
+    defer src_dir.close();
+
+    // Use a stack-based allocator for path building
+    var buf: [std.fs.max_path_bytes * 2]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buf);
+    const allocator = fba.allocator();
+
+    // Iterate and copy with symlink checks
+    var iter = src_dir.iterate();
+    while (try iter.next()) |entry| {
+        fba.reset();
+        const src_child = try std.fs.path.join(allocator, &.{ src_path, entry.name });
+        const dest_child = try std.fs.path.join(allocator, &.{ dest_path, entry.name });
+
+        // Check for symlink before processing
+        if (std.fs.cwd().readLink(src_child, &link_buf)) |_| {
+            // Skip symlinks
+            continue;
+        } else |_| {}
+
+        if (entry.kind == .directory) {
+            try copyDirRecursiveSafe(src_child, dest_child);
+        } else {
             try std.fs.cwd().copyFile(src_child, std.fs.cwd(), dest_child, .{});
         }
     }
