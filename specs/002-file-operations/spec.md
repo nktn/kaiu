@@ -323,7 +323,5 @@ Note: [main] represents inverted/reverse video text highlighting
 
 - Fuzzy search (Phase 3)
 - File preview in search results (Phase 3)
-- Redo for file operations (Phase 3)
-- Multi-level undo history (Phase 3)
 - Trash/recycle bin (Phase 3)
 - Bulk rename with pattern (Phase 3)
