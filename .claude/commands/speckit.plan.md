@@ -20,7 +20,7 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 ## Outline
 
-1. **Setup**: Run `.specify/scripts/bash/check-prerequisites.sh --json --paths-only` from repo root and parse JSON for FEATURE_DIR, FEATURE_SPEC, IMPL_PLAN.
+1. **Setup**: Run `.specify/scripts/bash/check-prerequisites.sh --json --paths-only` from repo root and parse JSON for REPO_ROOT, FEATURE_DIR, FEATURE_SPEC, IMPL_PLAN.
 
 2. **Detect project type**: Check for `build.zig` at repo root.
    - If exists → **Zig project** → Use zig-architect workflow (see below)
@@ -59,11 +59,9 @@ For Zig projects, use the `zig-architect` agent:
 
 2. **Phase 0**: Generate research.md (resolve all NEEDS CLARIFICATION)
 
-3. **Phase 1**: Generate data-model.md, contracts/, quickstart.md
+3. **Phase 1**: Generate data-model.md, contracts/, quickstart.md, update agent context
 
-4. **Phase 2**: Update agent context by running `.specify/scripts/bash/update-agent-context.sh claude`
-
-5. **Re-evaluate Constitution Check**: Verify design artifacts don't violate constitution principles
+4. **Re-evaluate Constitution Check**: Verify design artifacts don't violate constitution principles
 
 ## Phases
 
@@ -104,7 +102,12 @@ For Zig projects, use the `zig-architect` agent:
    - Use standard REST/GraphQL patterns
    - Output OpenAPI/GraphQL schema to `FEATURE_DIR/contracts/`
 
-3. **Agent context update**:
+3. **Generate quickstart.md**: Create validation scenarios from acceptance criteria:
+   - Key user flows to test
+   - Expected outcomes
+   - Edge cases to verify
+
+4. **Agent context update**:
    - Run `.specify/scripts/bash/update-agent-context.sh claude`
    - These scripts detect which AI agent is in use
    - Update the appropriate agent-specific context file
