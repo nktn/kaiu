@@ -20,11 +20,11 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 ## Outline
 
-1. **Setup**: Run `.specify/scripts/bash/check-prerequisites.sh --json --paths-only` from repo root and parse JSON for REPO_ROOT, FEATURE_DIR, FEATURE_SPEC, IMPL_PLAN.
+1. **Detect project type**: Check for `build.zig` at repo root.
 
-2. **Detect project type**: Check for `build.zig` at repo root.
-   - If exists → **Zig project** → Use zig-architect workflow (see below)
-   - Otherwise → Use standard workflow
+2. **Setup** (based on project type):
+   - **Zig**: Run `.specify/scripts/bash/check-prerequisites.sh --json --paths-only` → parse REPO_ROOT, FEATURE_DIR, FEATURE_SPEC, IMPL_PLAN
+   - **Standard**: Run `.specify/scripts/bash/setup-plan.sh --json` → parse paths + テンプレートが IMPL_PLAN にコピーされる
 
 3. **Load context**: Read FEATURE_SPEC and `specs/constitution.md`.
 
@@ -52,7 +52,7 @@ For Zig projects, use the `zig-architect` agent:
 
 ## Standard Workflow (Non-Zig)
 
-1. **Load IMPL_PLAN template** from `$REPO_ROOT/.specify/templates/plan-template.md` and fill:
+1. **Fill IMPL_PLAN template** (already copied by setup-plan.sh):
    - Technical Context (mark unknowns as "NEEDS CLARIFICATION")
    - Constitution Check section from constitution
    - Evaluate gates (ERROR if violations unjustified)
