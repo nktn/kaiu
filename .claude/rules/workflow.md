@@ -205,7 +205,7 @@ Feature Track との違い:
 - Success Criteria (SC)
 - Out of Scope
 
-**注**: `$FEATURE_DIR` は `check-prerequisites.sh` で取得 (例: `/path/to/repo/specs/001-feature`)
+**注**: `$FEATURE_DIR` は `check-prerequisites.sh` で取得 (例: `/path/to/repo/specs/feature/001-feature`)
 
 ### 2. /speckit.plan
 

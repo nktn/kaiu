@@ -45,7 +45,7 @@ context: User Story 駆動開発における Feature/Technical Track の選択�
 /speckit.specify "feature description"
     │
     ├─ Branch: 001-feature-name
-    ├─ Output: specs/001-feature-name/spec.md
+    ├─ Output: specs/feature/001-feature-name/spec.md
     ├─ Next: /speckit.plan → /speckit.tasks
     └─ Implementation: /implement (spec-based)
 ```
@@ -121,7 +121,7 @@ No → /technical
 
 # Agent の動作
 1. Branch 作成: 005-incremental-search
-2. spec.md 作成: specs/005-incremental-search/spec.md
+2. spec.md 作成: specs/feature/005-incremental-search/spec.md
 3. 関連 Issue 検索:
    - #15: fuzzy search proposal → 参照するか確認
    - #23: search performance ideas → 参照するか確認

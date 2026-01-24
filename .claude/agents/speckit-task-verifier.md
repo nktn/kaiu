@@ -28,7 +28,7 @@ tasks.md が spec.md の全要件をカバーしているか検証する。
 .specify/scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks
 
 # 出力例:
-# {"FEATURE_DIR":"/path/to/repo/specs/001-feature","AVAILABLE_DOCS":["tasks.md"]}
+# {"FEATURE_DIR":"/path/to/repo/specs/feature/001-feature","AVAILABLE_DOCS":["tasks.md"]}
 # 注: spec.md は常に $FEATURE_DIR 直下に存在する前提
 ```
 

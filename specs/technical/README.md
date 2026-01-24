@@ -22,10 +22,11 @@ specs/technical/
 
 | 項目 | Feature Track | Technical Track |
 |------|--------------|-----------------|
-| 場所 | `specs/{NNN}-{name}/` | `specs/technical/{issue}-{name}/` |
+| 場所 | `specs/feature/{NNN}-{name}/` | `specs/technical/{issue-number}-{name}/` |
 | spec.md | 必須 | なし (Issue が代替) |
 | plan.md | 必須 | 必須 |
 | tasks.md | 必須 | 必須 |
+| 番号 | 連番 (001, 002, ...) | GitHub Issue 番号 |
 
 ## 参照
 

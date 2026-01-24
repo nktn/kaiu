@@ -29,7 +29,7 @@ TUI file explorer with Vim keybindings using libvaxis. Core tree navigation with
 ### Documentation
 
 ```text
-specs/001-tree-view/
+specs/feature/001-tree-view/
 ├── spec.md       # Feature specification
 ├── plan.md       # This file
 └── tasks.md      # Task list
