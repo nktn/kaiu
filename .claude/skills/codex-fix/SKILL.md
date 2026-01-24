@@ -122,6 +122,14 @@ gh pr comment <PR番号> --body "<Decision Log>"
 - 意思決定 (Fixed / Skipped)
 - 理由 (なぜ修正/スキップしたか)
 
+### Step 9: コミットをプッシュ
+
+Decision Log 追記後、全てのコミットをプッシュ:
+
+```bash
+git push
+```
+
 ## オプション
 
 | オプション | デフォルト | 説明 |
@@ -164,6 +172,7 @@ Round 2:
 ✓ All issues resolved in 2 rounds
 
 Decision Log posted to PR #42
+Pushed to origin/feat/speckit-verifiers
 ```
 
 ## 関連
