@@ -165,7 +165,11 @@ pub const App = struct {
         }
         self.input_buffer.deinit(self.allocator);
         self.search_matches.deinit(self.allocator);
-        // Free marked_files (keys are owned by FileTree, no need to free them)
+        // Free owned path copies in marked_files
+        var iter = self.marked_files.keyIterator();
+        while (iter.next()) |key| {
+            self.allocator.free(key.*);
+        }
         self.marked_files.deinit();
         // Free clipboard files (we own copies of paths)
         for (self.clipboard_files.items) |path| {
@@ -336,7 +340,7 @@ pub const App = struct {
             'C' => try self.copyPathToClipboard(true),
             '?' => self.enterHelpMode(),
             // File operations
-            ' ' => self.toggleMark(),
+            ' ' => try self.toggleMark(),
             'y' => try self.yankFiles(),
             'd' => try self.cutFiles(),
             'p' => try self.pasteFiles(),
@@ -861,7 +865,7 @@ pub const App = struct {
         try self.file_tree.?.readDirectory();
 
         // Clear marked files - paths are now invalid after tree change
-        self.marked_files.clearRetainingCapacity();
+        self.clearMarkedFiles();
 
         self.cursor = 0;
         self.scroll_offset = 0;
@@ -881,7 +885,7 @@ pub const App = struct {
             try self.file_tree.?.readDirectory();
 
             // Clear marked files - paths are now invalid after tree reload
-            self.marked_files.clearRetainingCapacity();
+            self.clearMarkedFiles();
 
             // Clamp cursor
             const visible_count = self.file_tree.?.countVisible(self.show_hidden);
@@ -916,18 +920,43 @@ pub const App = struct {
 
     // ===== File Marking =====
 
-    fn toggleMark(self: *Self) void {
+    fn toggleMark(self: *Self) !void {
         if (self.file_tree == null) return;
         const ft = self.file_tree.?;
 
         const actual_index = ft.visibleToActualIndex(self.cursor, self.show_hidden) orelse return;
         const entry = &ft.entries.items[actual_index];
 
-        if (self.marked_files.contains(entry.path)) {
-            _ = self.marked_files.remove(entry.path);
-        } else {
-            self.marked_files.put(entry.path, {}) catch {};
+        // Check if already marked by comparing with stored owned copies
+        var found_key: ?[]const u8 = null;
+        var iter = self.marked_files.keyIterator();
+        while (iter.next()) |key| {
+            if (std.mem.eql(u8, key.*, entry.path)) {
+                found_key = key.*;
+                break;
+            }
         }
+
+        if (found_key) |key| {
+            // Unmark: remove and free owned copy
+            _ = self.marked_files.remove(key);
+            self.allocator.free(key);
+        } else {
+            // Mark: store owned copy of path
+            const owned_path = try self.allocator.dupe(u8, entry.path);
+            self.marked_files.put(owned_path, {}) catch {
+                self.allocator.free(owned_path);
+            };
+        }
+    }
+
+    /// Clear all marks and free owned path copies
+    fn clearMarkedFiles(self: *Self) void {
+        var iter = self.marked_files.keyIterator();
+        while (iter.next()) |key| {
+            self.allocator.free(key.*);
+        }
+        self.marked_files.clearRetainingCapacity();
     }
 
     // ===== Yank/Cut/Paste Operations =====
@@ -951,14 +980,14 @@ pub const App = struct {
         self.clipboard_files.clearRetainingCapacity();
 
         if (self.marked_files.count() > 0) {
-            // Copy all marked files
+            // Copy all marked files to clipboard
             var iter = self.marked_files.keyIterator();
             while (iter.next()) |key| {
                 const path_copy = try self.allocator.dupe(u8, key.*);
                 try self.clipboard_files.append(self.allocator, path_copy);
             }
-            // Clear marks
-            self.marked_files.clearRetainingCapacity();
+            // Clear marks and free owned path copies
+            self.clearMarkedFiles();
         } else {
             // Copy current file
             const actual_index = ft.visibleToActualIndex(self.cursor, self.show_hidden) orelse return;
@@ -1372,8 +1401,8 @@ pub const App = struct {
                 deleted_count += 1;
             }
 
-            // Clear marks
-            self.marked_files.clearRetainingCapacity();
+            // Clear marks and free owned path copies
+            self.clearMarkedFiles();
         } else {
             // Delete current file
             const actual_index = ft.visibleToActualIndex(self.cursor, self.show_hidden) orelse {
