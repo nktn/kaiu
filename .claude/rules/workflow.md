@@ -53,7 +53,7 @@ kaiu 開発における計画から実装までの全体フロー。
 │  doc-updater (ドキュメント更新 + パターン学習)                   │
 │      │                                                          │
 │      ▼                                                          │
-│  /pr → /codex                                                   │
+│  /pr → /codex-fix (または /codex → 手動修正)                     │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -151,10 +151,11 @@ Phase 完了ごとに `speckit-impl-verifier` で部分検証。
 - セッションから有用なパターンを抽出
 - `.claude/skills/learned/` に保存
 
-### 3. /pr → /codex
+### 3. /pr → /codex-fix
 
 - `/pr`: Pull Request 作成
-- `/codex`: コードレビュー
+- `/codex-fix`: コードレビュー + 自動修正ループ
+- `/codex`: 単発レビュー (手動修正する場合)
 
 ---
 
@@ -170,6 +171,7 @@ Phase 完了ごとに `speckit-impl-verifier` で部分検証。
 | `speckit-task-verifier` | Task カバレッジ検証 | `/speckit.tasks` 後 |
 | `speckit-impl-verifier` | 実装検証 | Phase 完了後、最終 |
 | `doc-updater` | ドキュメント + 学習 | 検証 PASS 後 |
+| `codex-fixer` | レビュー指摘修正 | `/codex-fix` 実行時 |
 
 ---
 
@@ -200,7 +202,8 @@ Phase 完了ごとに `speckit-impl-verifier` で部分検証。
 | コマンド | 役割 |
 |----------|------|
 | `/pr` | Pull Request 作成 |
-| `/codex` | コードレビュー |
+| `/codex` | コードレビュー (単発) |
+| `/codex-fix` | レビュー + 自動修正ループ |
 
 ---
 
@@ -222,7 +225,8 @@ Phase 完了ごとに `speckit-impl-verifier` で部分検証。
 # → 最終検証 PASS
 # → doc-updater 実行
 
-# 3. PR 作成
+# 3. PR 作成 + レビュー
 /pr
-/codex
+/codex-fix
+# → 自動で指摘修正 → 再レビュー → ... (指摘なくなるまで)
 ```
