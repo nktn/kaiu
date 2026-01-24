@@ -31,10 +31,18 @@ Other: `o` preview toggle, `c`/`C` clipboard, `q` quit.
 
 ## Workflow
 
+### Feature Track (User-facing features)
 1. **Plan**: `/speckit.specify` → `/speckit.plan` → `/speckit.tasks`
 2. **Implement**: `/implement` (runs TDD + build-fix + review)
 3. **Review**: `/codex` → Decision Log in PR comments
 4. **Merge**: `/pr merge`
+
+### Technical Track (Refactoring, docs)
+1. **Start**: `/technical "description"` or `/technical #22`
+2. **Implement**: orchestrator → TDD → refactor
+3. **Review**: `/codex-fix` → PR (Closes #XX)
+
+**Track Selection**: "Does this change let users do something new?" → Yes = Feature Track, No = Technical Track
 
 ## References
 
