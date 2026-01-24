@@ -132,7 +132,7 @@ Agent の使い分けと実行戦略。
 実装検証 PASS 後に実行:
 
 ```
-- ドキュメント更新 (README.md, architecture.md, CLAUDE.md)
+- ドキュメント更新 (README.md, architecture.md, workflow.md, CLAUDE.md)
 - セッションからのパターン抽出・保存
 ```
 
@@ -146,6 +146,11 @@ Agent の使い分けと実行戦略。
 - libvaxis 使用パターン
 - build.zig パターン
 - メモリ管理戦略
+
+**architecture.md と `.claude/skills/learned/` の分離**:
+- `architecture.md`: kaiu 固有の設計決定 (「何を決めたか」)
+- `.claude/skills/learned/`: 汎用パターン (「なぜそうなのか」- 他プロジェクトでも使える知識)
+- 汎用的な Rationale は `.claude/skills/learned/` に保存し、architecture.md から参照
 
 **出力**: 更新レポート、`.claude/skills/learned/` にパターン保存
 

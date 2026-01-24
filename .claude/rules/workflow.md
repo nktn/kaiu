@@ -280,7 +280,9 @@ Phase 完了ごとに `speckit-impl-verifier` で部分検証。
 
 **ドキュメント更新**:
 - README.md (キーバインド表)
+- CLAUDE.md (AI エージェント向け概要)
 - architecture.md (状態遷移図)
+- workflow.md (Agent/コマンド一覧)
 
 **パターン学習**:
 - セッションから有用なパターンを抽出
