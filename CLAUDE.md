@@ -5,9 +5,10 @@
 ## Commands
 
 ```bash
-zig build           # Build
-zig build run       # Build and run
-zig build test      # Run tests
+zig build                       # Build
+zig build run                   # Build and run
+zig build test                  # Run tests (silent on success)
+zig build test --summary all    # Run tests with results
 ```
 
 ## Architecture
