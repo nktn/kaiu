@@ -16,6 +16,7 @@ Agent の使い分けと実行戦略。
 | `speckit-task-verifier` | Task カバレッジ検証 | `/speckit.tasks` 後、実装前 |
 | `speckit-impl-verifier` | 実装検証・ギャップ検出 | Phase 完了後、全タスク完了後 |
 | `doc-updater` | ドキュメント同期・パターン学習 | 実装検証 PASS 後 |
+| `codex-fixer` | レビュー指摘の自動修正 | `/codex-fix` 実行時 |
 
 ## Available Skills
 
@@ -41,7 +42,8 @@ Agent の使い分けと実行戦略。
 | Phase 完了後 | `speckit-impl-verifier` (部分検証) |
 | 全タスク完了後 | `zig-refactor-cleaner` → `speckit-impl-verifier` |
 | 実装検証 PASS 後 | `doc-updater` (ドキュメント更新 + パターン学習) |
-| PR 後のレビュー | `codex` (skill) |
+| PR 後のレビュー | `codex` (skill) または `/codex-fix` |
+| レビュー指摘の修正 | `codex-fixer` (via `/codex-fix`) |
 
 ### zig-architect Triggers
 
