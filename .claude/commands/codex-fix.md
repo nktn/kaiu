@@ -55,7 +55,7 @@ Codex レビューと修正を自動でループ実行する。
 
 ```bash
 # Codex CLI でレビュー実行
-codex exec --full-auto --sandbox read-only "Review the changes in this PR for code quality issues"
+codex exec --full-auto --sandbox read-only --cd <project_directory> "Review the changes in this PR for code quality issues"
 ```
 
 レビュー結果から指摘を抽出:
