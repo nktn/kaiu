@@ -14,10 +14,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Zig
-        uses: mlugg/setup-zig@v1
-        with:
-          version: master
+      - name: Install Zig (dev build)
+        run: |
+          # Fetch latest Zig dev build info
+          ZIG_JSON=$(curl -s https://ziglang.org/download/index.json)
+          ZIG_URL=$(echo "$ZIG_JSON" | jq -r '.master."x86_64-linux".tarball')
+          echo "Downloading: $ZIG_URL"
+          curl -sL "$ZIG_URL" | tar xJ
+          ZIG_DIR=$(ls -d zig-linux-x86_64-*)
+          echo "$PWD/$ZIG_DIR" >> $GITHUB_PATH
+
+      - name: Check Zig version
+        run: zig version
 
       - name: Build
         run: zig build
@@ -25,7 +33,6 @@ jobs:
       - name: Test
         run: zig build test
 
-  # Optional: Build on macOS to match development environment
   build-macos:
     runs-on: macos-latest
 
@@ -33,10 +40,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Zig
-        uses: mlugg/setup-zig@v1
-        with:
-          version: master
+      - name: Install Zig (dev build)
+        run: |
+          # Fetch latest Zig dev build info
+          ZIG_JSON=$(curl -s https://ziglang.org/download/index.json)
+          ZIG_URL=$(echo "$ZIG_JSON" | jq -r '.master."aarch64-macos".tarball')
+          echo "Downloading: $ZIG_URL"
+          curl -sL "$ZIG_URL" | tar xJ
+          ZIG_DIR=$(ls -d zig-macos-aarch64-*)
+          echo "$PWD/$ZIG_DIR" >> $GITHUB_PATH
+
+      - name: Check Zig version
+        run: zig version
 
       - name: Build
         run: zig build
