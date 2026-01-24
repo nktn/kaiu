@@ -23,6 +23,7 @@ stateDiagram-v2
     TreeView --> TreeView: y (yank)
     TreeView --> TreeView: d (cut)
     TreeView --> TreeView: p (paste)
+    TreeView --> TreeView: u (undo)
     TreeView --> Preview: o/l/Enter on file
     TreeView --> Search: /
     TreeView --> PathInput: gn
@@ -82,6 +83,7 @@ stateDiagram-v2
 | TreeView | `y` | TreeView | yankFiles() |
 | TreeView | `d` | TreeView | cutFiles() |
 | TreeView | `p` | TreeView | pasteFiles() |
+| TreeView | `u` | TreeView | undoLastOperation() |
 | TreeView | `r` | Rename | enterRenameMode() |
 | TreeView | `a` | NewFile | enterNewFileMode() |
 | TreeView | `A` | NewDir | enterNewDirMode() |
@@ -151,6 +153,8 @@ src/
 | App.input_buffer | ArrayList(u8) | 検索/パス入力の動的バッファ |
 | App.search_matches | ArrayList(usize) | マッチしたエントリのインデックス |
 | App.render_arena | ArenaAllocator | フレームごとにリセット |
+| App.undo_state | UndoState | 直前の操作情報、エントリごとにパスを所有 |
+| App.undo_staging_dir | []const u8 | /tmp/kaiu-undo-{pid}、deinit で削除 |
 
 ## Key Data Structures
 
@@ -388,6 +392,172 @@ pub const App = struct {
 - ファイルシステム変更を即座に反映
 - マーク状態は marked_files HashSet で保持されるため、パスベースで復元可能
 - カーソル位置は可能な限り維持 (該当エントリが存在すればパスで検索)
+
+### [2026-01-24] Status Bar Path Display (FR-030, FR-031)
+**Context**: ステータスバーに表示するパスの形式
+- FR-030: 絶対パスで表示 (`.` や相対パスではない)
+- FR-031: ホームディレクトリ以下は `~` prefix で表示
+
+**Decision**: 2段階のアプローチ
+1. **init 時**: main.zig で `realpathAlloc()` を使用して絶対パスに変換
+2. **表示時**: ui.zig でホームディレクトリを `~` に置換
+
+**Implementation**:
+```zig
+// main.zig - 絶対パス変換
+const resolved = try std.fs.cwd().realpathAlloc(allocator, path);
+
+// ui.zig or app.zig - 表示用 ~ 置換
+fn formatDisplayPath(arena: Allocator, path: []const u8) []const u8 {
+    const home = std.posix.getenv("HOME") orelse return path;
+    if (std.mem.startsWith(u8, path, home)) {
+        return std.fmt.allocPrint(arena, "~{s}", .{path[home.len..]});
+    }
+    return path;
+}
+```
+
+**Rationale**:
+- 保存時は絶対パス: ファイル操作で一貫性を保つ
+- 表示時は `~` 置換: ユーザーフレンドリーで読みやすい
+- init 時に計算: 毎フレームの計算を避ける
+- render_arena で一時割り当て: 表示用文字列はフレームごとにリセット
+
+**Alternatives Considered**:
+- 保存時に `~` を含める: ファイル操作時に再度展開が必要、複雑化
+- render 時に realpath: 毎フレーム I/O 発生、パフォーマンス問題
+
+**Data Flow**:
+```
+CLI arg     main.zig              FileTree            Status Bar
+  "."   --> realpathAlloc() --> root_path          --> formatDisplayPath()
+            "/Users/x/kaiu"    "/Users/x/kaiu"        "~/kaiu"
+```
+
+### [2026-01-24] Undo Operations (FR-032-FR-037)
+**Context**: ファイル操作 (delete, move, copy, rename) の取り消し機能が必要
+- FR-032: `u` で直前のファイル操作を取り消し
+- FR-033: 削除ファイルを元の場所に復元
+- FR-034: cut+paste を元に戻す
+- FR-035: yank+paste で作成されたファイルを削除
+- FR-036: rename を元に戻す
+- FR-037: single-level undo (直前の操作のみ)
+
+**Decision**: UndoState 構造体を追加し、一時ディレクトリに削除ファイルを退避
+
+**UndoState Structure**:
+```zig
+pub const UndoOperation = enum {
+    none,
+    delete,    // 削除 → 復元
+    move,      // cut+paste → 元に戻す
+    copy,      // yank+paste → 削除
+    rename,    // rename → 元の名前に戻す
+};
+
+pub const UndoEntry = struct {
+    src_path: []const u8,   // 元のパス (delete: 元の場所, move: 元の場所, copy: なし, rename: 元の名前)
+    dest_path: []const u8,  // 先のパス (delete: 退避先, move: 移動先, copy: コピー先, rename: 新しい名前)
+};
+
+pub const UndoState = struct {
+    operation: UndoOperation,
+    entries: std.ArrayList(UndoEntry),  // 複数ファイル対応
+
+    pub fn deinit(self: *UndoState, allocator: Allocator) void
+    pub fn clear(self: *UndoState, allocator: Allocator) void
+};
+```
+
+**Deleted File Staging**:
+- 削除時: ファイルを `/tmp/kaiu-undo-{pid}/` に移動 (rename)
+- Undo 時: 退避先から元の場所に移動 (rename)
+- 次の操作時: 前の退避ファイルを削除してクリア
+- アプリ終了時: `deinit()` で退避ディレクトリを削除
+
+**Rationale**:
+1. **一時ディレクトリ方式を採用**:
+   - 削除時に即座に削除せず、一時ディレクトリに移動
+   - rename (同一ファイルシステム内) なので高速
+   - ファイル内容の完全なバックアップが可能
+
+2. **PID をディレクトリ名に含める**:
+   - 複数の kaiu インスタンスが同時実行可能
+   - 衝突を回避
+   - 例: `/tmp/kaiu-undo-12345/`
+
+3. **ArrayList(UndoEntry) で複数ファイル対応**:
+   - マークした複数ファイルの一括操作を undo 可能
+   - 各エントリに src/dest パスを保存
+
+4. **single-level undo**:
+   - FR-037 の要件通り
+   - 次の操作時に前の undo 情報をクリア
+   - メモリ使用量を抑制
+
+**Operation-specific Behavior**:
+
+| Operation | Record | Undo Action |
+|-----------|--------|-------------|
+| delete | src=元のパス, dest=退避パス | 退避先から元の場所に rename |
+| move (cut+paste) | src=元のパス, dest=移動先パス | dest から src に rename |
+| copy (yank+paste) | src=null, dest=コピー先パス | dest を削除 |
+| rename | src=元のパス, dest=新しいパス | dest を src に rename |
+
+**Error Handling**:
+- 退避ファイルが見つからない: `status_message = "Undo failed: file not found"`
+- 復元先に同名ファイルがある: `status_message = "Undo failed: file exists"`
+- 権限エラー: `status_message = "Undo failed: permission denied"`
+- undo 履歴がない: `status_message = "Nothing to undo"`
+
+**Cleanup Strategy**:
+```zig
+// 新しい操作を記録する前に
+fn recordUndoOperation(self: *App, op: UndoOperation) void {
+    // 前の退避ファイルをクリーンアップ
+    self.cleanupPreviousUndo();
+    // 新しい操作を記録
+    self.undo_state.operation = op;
+}
+
+// アプリ終了時
+fn deinit(self: *App) void {
+    self.cleanupUndoStagingDir();
+    // ... 他の cleanup
+}
+```
+
+**Staging Directory Structure**:
+```
+/tmp/kaiu-undo-{pid}/
+├── 0_original_filename.txt    // 削除されたファイル (番号でユニーク化)
+├── 1_another_file.txt
+└── 2_subdir/                   // ディレクトリも保持
+    └── nested_file.txt
+```
+
+**Alternatives Considered**:
+1. **即座に削除して復元不可**: シンプルだが undo 不可能
+2. **メモリ内にファイル内容を保存**: 大きなファイルでメモリ不足
+3. **XDG_CACHE_HOME に保存**: 永続化が不要なので /tmp で十分
+4. **ファイル名をハッシュ化**: デバッグしにくい、番号で十分
+
+**State Transitions**:
+```
+TreeView --> TreeView: u (undo)
+```
+
+**New Fields in App**:
+```zig
+// In App struct
+undo_state: UndoState,
+undo_staging_dir: ?[]const u8,  // /tmp/kaiu-undo-{pid}
+```
+
+**Memory Management**:
+- `UndoEntry.src_path`, `UndoEntry.dest_path`: allocator.dupe で所有
+- `UndoState.deinit()`: 全エントリのパスを free
+- `undo_staging_dir`: init 時に作成、deinit 時に削除
 
 ---
 
