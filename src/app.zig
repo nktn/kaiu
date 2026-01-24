@@ -1617,15 +1617,14 @@ pub const App = struct {
 
     fn initUndoStagingDir(self: *Self) !void {
         // Create staging directory with random suffix for security
-        // Format: /tmp/kaiu-undo-{pid}-{random}/
-        const pid = std.c.getpid();
-
-        // Generate random suffix using timestamp
+        // Format: /tmp/kaiu-undo-{random1}-{random2}/
+        // Uses two random values for uniqueness (no libc dependency)
         const nano = std.time.nanoTimestamp();
         var prng = std.Random.DefaultPrng.init(@truncate(@as(u128, @bitCast(nano))));
-        const random_suffix = prng.random().int(u32);
+        const random1 = prng.random().int(u32);
+        const random2 = prng.random().int(u32);
 
-        const staging_path = try std.fmt.allocPrint(self.allocator, "/tmp/kaiu-undo-{d}-{x}", .{ pid, random_suffix });
+        const staging_path = try std.fmt.allocPrint(self.allocator, "/tmp/kaiu-undo-{x}-{x}", .{ random1, random2 });
         errdefer self.allocator.free(staging_path);
 
         // Security: Check if path already exists (could be attacker-created)
