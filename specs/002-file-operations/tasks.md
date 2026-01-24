@@ -140,27 +140,27 @@
 
 ## Task 2.14: Status Bar Path Display (FR-030, FR-031)
 
-- [ ] Resolve relative paths (`.`, `..`) to absolute paths
-- [ ] Replace home directory prefix with `~`
-- [ ] Update path display in status bar
-- [ ] Add tests for path expansion
+- [x] Resolve relative paths (`.`, `..`) to absolute paths
+- [x] Replace home directory prefix with `~`
+- [x] Update path display in status bar
+- [x] Add tests for path expansion
 
 ---
 
 ## Task 2.15: Undo Operations (US7, FR-032-FR-037)
 
-- [ ] Create UndoState structure (operation type, source paths, dest paths)
-- [ ] Store undo info after delete operation
-- [ ] Store undo info after paste (move) operation
-- [ ] Store undo info after paste (copy) operation
-- [ ] Store undo info after rename operation
-- [ ] Implement `u` to trigger undo
-- [ ] Restore deleted files from backup location
-- [ ] Move files back for cut+paste undo
-- [ ] Delete copied files for yank+paste undo
-- [ ] Revert rename for rename undo
-- [ ] Show feedback "Undone: <operation>" or "Nothing to undo"
-- [ ] Clear undo state after successful undo
+- [x] Create UndoState structure (operation type, source paths, dest paths)
+- [x] Store undo info after delete operation
+- [x] Store undo info after paste (move) operation
+- [x] Store undo info after paste (copy) operation
+- [x] Store undo info after rename operation
+- [x] Implement `u` to trigger undo
+- [x] Restore deleted files from backup location
+- [x] Move files back for cut+paste undo
+- [x] Delete copied files for yank+paste undo
+- [x] Revert rename for rename undo
+- [x] Show feedback "Undone: <operation>" or "Nothing to undo"
+- [x] Clear undo state after successful undo
 
 ---
 

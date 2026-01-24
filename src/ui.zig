@@ -396,6 +396,7 @@ pub fn renderHelp(win: vaxis.Window) !void {
         .{ "D", "Delete" },
         .{ "r", "Rename" },
         .{ "a/A", "New file/dir" },
+        .{ "u", "Undo last op" },
     };
 
     for (file_keys) |kv| {

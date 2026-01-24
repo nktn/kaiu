@@ -41,6 +41,7 @@ pub fn main() !void {
 
 /// Expand ~ to home directory and validate path exists and is a directory.
 /// Returns PathResult with ownership flag - caller must free path if owned=true.
+/// The returned path is always an absolute path (FR-030).
 pub fn expandAndValidatePath(allocator: std.mem.Allocator, path: []const u8) !PathResult {
     var resolved_path: []const u8 = path;
     var owned = false;
@@ -50,7 +51,7 @@ pub fn expandAndValidatePath(allocator: std.mem.Allocator, path: []const u8) !Pa
         const home = std.posix.getenv("HOME") orelse return error.HomeNotFound;
 
         if (path.len == 1) {
-            // Just "~" - return home directly (not owned, it's from env)
+            // Just "~" - use home directory
             resolved_path = home;
             owned = false;
         } else if (path.len > 1 and path[1] == '/') {
@@ -78,7 +79,20 @@ pub fn expandAndValidatePath(allocator: std.mem.Allocator, path: []const u8) !Pa
         return error.NotADirectory;
     }
 
-    return .{ .path = resolved_path, .owned = owned };
+    // Convert to absolute path using realpathAlloc (FR-030)
+    const abs_path = std.fs.cwd().realpathAlloc(allocator, resolved_path) catch |err| {
+        return switch (err) {
+            error.FileNotFound => error.PathNotFound,
+            error.AccessDenied => error.AccessDenied,
+            else => error.PathNotFound,
+        };
+    };
+    // If we had a previously owned path from tilde expansion, free it
+    if (owned) {
+        allocator.free(resolved_path);
+    }
+
+    return .{ .path = abs_path, .owned = true };
 }
 
 test "main imports" {
@@ -90,9 +104,12 @@ test "main imports" {
 test "expandAndValidatePath with current directory" {
     const allocator = std.testing.allocator;
     const result = try expandAndValidatePath(allocator, ".");
-    // "." should be returned as-is (no allocation)
-    try std.testing.expectEqualStrings(".", result.path);
-    try std.testing.expect(!result.owned);
+    defer if (result.owned) allocator.free(result.path);
+
+    // "." should be resolved to absolute path (FR-030)
+    try std.testing.expect(result.path.len > 0);
+    try std.testing.expect(result.path[0] == '/');
+    try std.testing.expect(result.owned);
 }
 
 test "expandAndValidatePath with non-existent path" {
@@ -125,8 +142,9 @@ test "expandAndValidatePath with tilde expansion" {
     if (std.posix.getenv("HOME")) |home| {
         // Test "~" alone
         const result = try expandAndValidatePath(allocator, "~");
+        defer if (result.owned) allocator.free(result.path);
+        // Result should be absolute path (home directory)
         try std.testing.expectEqualStrings(home, result.path);
-        try std.testing.expect(!result.owned); // HOME pointer, not owned
 
         // Test "~/." (home directory with dot)
         const result2 = try expandAndValidatePath(allocator, "~/.");
@@ -134,4 +152,23 @@ test "expandAndValidatePath with tilde expansion" {
         try std.testing.expect(std.mem.startsWith(u8, result2.path, home));
         try std.testing.expect(result2.owned); // allocated, owned
     }
+}
+
+test "expandAndValidatePath returns absolute path for relative paths" {
+    const allocator = std.testing.allocator;
+
+    // Create a temp directory and test relative path
+    var tmp_dir = std.testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    // Get the absolute path of the temp dir
+    const abs_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(abs_path);
+
+    // Validate that expandAndValidatePath with absolute path returns absolute
+    const result = try expandAndValidatePath(allocator, abs_path);
+    defer if (result.owned) allocator.free(result.path);
+
+    try std.testing.expect(result.path[0] == '/');
+    try std.testing.expectEqualStrings(abs_path, result.path);
 }
