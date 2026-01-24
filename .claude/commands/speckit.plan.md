@@ -52,7 +52,7 @@ For Zig projects, use the `zig-architect` agent:
 
 ## Standard Workflow (Non-Zig)
 
-1. **Load IMPL_PLAN template** and fill:
+1. **Load IMPL_PLAN template** from `$REPO_ROOT/.specify/templates/plan-template.md` and fill:
    - Technical Context (mark unknowns as "NEEDS CLARIFICATION")
    - Constitution Check section from constitution
    - Evaluate gates (ERROR if violations unjustified)
@@ -102,7 +102,7 @@ For Zig projects, use the `zig-architect` agent:
 2. **Generate API contracts** from functional requirements:
    - For each user action → endpoint
    - Use standard REST/GraphQL patterns
-   - Output OpenAPI/GraphQL schema to `/contracts/`
+   - Output OpenAPI/GraphQL schema to `FEATURE_DIR/contracts/`
 
 3. **Agent context update**:
    - Run `.specify/scripts/bash/update-agent-context.sh claude`
@@ -111,9 +111,9 @@ For Zig projects, use the `zig-architect` agent:
    - Add only new technology from current plan
    - Preserve manual additions between markers
 
-**Output**: data-model.md, /contracts/*, quickstart.md, agent-specific file
+**Output**: data-model.md, FEATURE_DIR/contracts/*, quickstart.md, agent-specific file
 
 ## Key rules
 
-- Use absolute paths
+- Use paths relative to REPO_ROOT or FEATURE_DIR (parsed from setup step)
 - ERROR on gate failures or unresolved clarifications
