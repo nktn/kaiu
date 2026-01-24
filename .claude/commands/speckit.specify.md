@@ -68,9 +68,41 @@ Given that feature description, do this:
    - The JSON output will contain BRANCH_NAME and SPEC_FILE paths
    - For single quotes in args like "I'm Groot", use escape syntax: e.g 'I'\''m Groot' (or double-quote if possible: "I'm Groot")
 
-3. Load `.specify/templates/spec-template.md` to understand required sections.
+3. **Check for related Issues** (Feature Track integration):
 
-4. Follow this execution flow:
+   a. Search for potentially related Issues:
+      ```bash
+      # Search by keywords from the feature description
+      gh issue list --state open --json number,title,labels --limit 20
+      ```
+
+   b. If related Issues are found, ask the user:
+      ```markdown
+      ## Related Issues Found
+
+      The following Issues may be related to this feature:
+
+      | # | Title | Labels |
+      |---|-------|--------|
+      | #15 | fuzzy search proposal | enhancement |
+      | #23 | search performance ideas | technical |
+
+      Would you like to reference any of these Issues?
+      - Enter Issue numbers (e.g., "15, 23") to include
+      - Enter "none" to skip
+      ```
+
+   c. If user selects Issues:
+      - Read Issue content: `gh issue view {number} --json body`
+      - Extract relevant requirements/ideas to incorporate into the spec
+      - Add `feature` label to selected Issues: `gh issue edit {number} --add-label feature`
+      - Note: These Issues will be linked in the spec's "Related Issues" section
+
+   d. If no related Issues or user skips, continue to next step.
+
+4. Load `.specify/templates/spec-template.md` to understand required sections.
+
+5. Follow this execution flow:
 
     1. Parse user description from Input
        If empty: ERROR "No feature description provided"
@@ -96,9 +128,17 @@ Given that feature description, do this:
     7. Identify Key Entities (if data involved)
     8. Return: SUCCESS (spec ready for planning)
 
-5. Write the specification to SPEC_FILE using the template structure, replacing placeholders with concrete details derived from the feature description (arguments) while preserving section order and headings.
+6. Write the specification to SPEC_FILE using the template structure, replacing placeholders with concrete details derived from the feature description (arguments) while preserving section order and headings.
 
-6. **Specification Quality Validation**: After writing the initial spec, validate it against quality criteria:
+   **If related Issues were selected in step 3**, add a "Related Issues" section to the spec:
+   ```markdown
+   ## Related Issues
+
+   - #15: fuzzy search proposal - [summary of incorporated ideas]
+   - #23: search performance ideas - [summary of incorporated ideas]
+   ```
+
+7. **Specification Quality Validation**: After writing the initial spec, validate it against quality criteria:
 
    a. **Create Spec Quality Checklist**: Generate a checklist file at `FEATURE_DIR/checklists/requirements.md` using the checklist template structure with these validation items:
 
@@ -190,7 +230,7 @@ Given that feature description, do this:
 
    d. **Update Checklist**: After each validation iteration, update the checklist file with current pass/fail status
 
-7. Report completion with branch name, spec file path, checklist results, and readiness for the next phase (`/speckit.clarify` or `/speckit.plan`).
+8. Report completion with branch name, spec file path, checklist results, related Issues (if any), and readiness for the next phase (`/speckit.clarify` or `/speckit.plan`).
 
 **NOTE:** The script creates and checks out the new branch and initializes the spec file before writing.
 
