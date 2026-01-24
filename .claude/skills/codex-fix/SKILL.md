@@ -2,7 +2,10 @@
 name: codex-fix
 description: >
   /codex-fix - Codex レビュー修正ループ
-triggers: "/codex-fix", "codex fix", "レビュー修正"
+triggers:
+  - "/codex-fix"
+  - "codex fix"
+  - "レビュー修正"
 ---
 
 # Codex Fix

@@ -25,6 +25,7 @@ Agent の使い分けと実行戦略。
 | Skill | 役割 | 呼び出し |
 |-------|------|---------|
 | `codex` | コードレビュー (Codex CLI) | `/codex` |
+| `codex-fix` | レビュー + 自動修正ループ | `/codex-fix` |
 | `zig-build-engineer` | build.zig パターン・API | 自動参照 |
 
 ## When to Use Each Agent
@@ -240,7 +241,7 @@ tasks.md 完成 (計画フェーズ終了)
   doc-updater (ドキュメント更新 + パターン学習)
     │
     ▼
-   /pr → /codex
+   /pr → /codex-fix (または /codex → 手動修正)
 ```
 
 ### 設計判断の記録
