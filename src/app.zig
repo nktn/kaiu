@@ -1175,7 +1175,7 @@ pub const App = struct {
 
         const total_count = self.clipboard_files.items.len;
         var success_count: usize = 0;
-        for (self.clipboard_files.items) |src_path| {
+        file_loop: for (self.clipboard_files.items) |src_path| {
             const filename = std.fs.path.basename(src_path);
             const dest_path = try std.fs.path.join(self.allocator, &.{ dest_dir, filename });
             defer self.allocator.free(dest_path);
@@ -1196,8 +1196,9 @@ pub const App = struct {
                 suffix += 1;
                 if (suffix > 100) {
                     // Too many conflicts - skip this file to prevent overwriting
+                    // Use labeled continue to exit to outer for loop, not inner while loop
                     if (owned_final) self.allocator.free(final_dest);
-                    continue;
+                    continue :file_loop;
                 }
             } else |_| {
                 // File doesn't exist, we can use this path
@@ -1206,12 +1207,12 @@ pub const App = struct {
 
             // Perform copy or move
             if (self.clipboard_operation == .copy) {
-                self.copyPath(src_path, final_dest) catch continue;
+                self.copyPath(src_path, final_dest) catch continue :file_loop;
             } else {
                 std.fs.cwd().rename(src_path, final_dest) catch {
                     // If rename fails (cross-device), try copy + delete
                     // Only delete source if copy succeeded to prevent data loss
-                    self.copyPath(src_path, final_dest) catch continue;
+                    self.copyPath(src_path, final_dest) catch continue :file_loop;
                     self.deletePathRecursive(src_path) catch {
                         // Copy succeeded but delete failed - this is acceptable
                         // (user will have duplicate, not data loss)
