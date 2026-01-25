@@ -130,7 +130,7 @@ if (std.fs.cwd().readLink(path, &buf)) |target| {
 | `statFile()` | ✅ YES | Get info about symlink target |
 | `readLink()` | ❌ NO | Detect if path is a symlink |
 | `deleteFile()` | ❌ NO | Delete symlink itself |
-| `deleteTree()` | ❌ NO | Delete directory contents (but follows symlinks inside) |
+| `deleteTree()` | ❌ NO | Delete directory contents (does not follow symlinks) |
 | `copyFile()` | ✅ YES | Copies symlink target's content |
 | `openFile()` | ✅ YES | Opens symlink target |
 

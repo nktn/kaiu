@@ -118,11 +118,11 @@ pub const AppMode = enum {
 
 ```
 src/
-├── main.zig      # Entry point, CLI args, path validation (~140 lines)
+├── main.zig      # Entry point, CLI args, path validation (~174 lines)
 ├── app.zig       # App state, event loop, state machine (~1887 lines)
-├── file_ops.zig  # File operations, clipboard, path utilities (~390 lines)
+├── file_ops.zig  # File operations, path utilities (~390 lines)
 ├── tree.zig      # FileTree data structure (~370 lines)
-└── ui.zig        # libvaxis rendering, highlighting (~420 lines)
+└── ui.zig        # libvaxis rendering, highlighting (~463 lines)
 ```
 
 ### Module Responsibilities
@@ -131,7 +131,7 @@ src/
 |--------|---------------|
 | main.zig | CLI引数処理、パス検証、チルダ展開、App初期化 |
 | app.zig | アプリケーション状態、イベントループ、キー処理、検索ロジック、ファイル操作呼び出し |
-| file_ops.zig | ファイル・ディレクトリ操作 (copy/delete)、クリップボード (OSC 52)、パス表示フォーマット、バリデーション |
+| file_ops.zig | ファイル・ディレクトリ操作 (copy/delete)、パス表示フォーマット、バリデーション、Base64エンコード |
 | tree.zig | FileTree構造、展開/折りたたみ、可視インデックス変換 |
 | ui.zig | レンダリング、検索ハイライト、ヘルプ表示、サニタイズ |
 
@@ -262,8 +262,8 @@ pub const App = struct {
 - app.zig: ~1887行 (凝集度を保ちつつ、file_ops.zig を抽出済み)
 - file_ops.zig: ~390行 (適正 - 純粋なファイル操作)
 - tree.zig: ~370行 (適正)
-- ui.zig: ~420行 (適正)
-- main.zig: ~140行 (適正)
+- ui.zig: ~463行 (適正)
+- main.zig: ~174行 (適正)
 
 **重要**: 凝集度（関連する機能がまとまっている）を行数より優先する。
 

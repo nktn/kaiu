@@ -25,7 +25,7 @@ A single .zig file grows too large (e.g., 2253 lines), making it harder to navig
 Extract functions with **no App state dependencies** into standalone modules.
 
 **Criteria for extraction**:
-- ✅ Pure functions (deterministic, no side effects on app state)
+- ✅ No App state dependencies (may depend on environment like HOME)
 - ✅ Self-contained logic (file system operations, encoding, validation)
 - ✅ Easily testable in isolation
 - ✅ Reusable from multiple call sites

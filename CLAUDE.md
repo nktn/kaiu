@@ -16,7 +16,7 @@ zig build test --summary all    # Run tests with results
 Model-View-Update pattern with libvaxis:
 
 - `app.zig` - State + event handling
-- `file_ops.zig` - File operations (copy, delete, clipboard, path utilities)
+- `file_ops.zig` - File operations (copy, delete, path utilities, base64 encoding)
 - `ui.zig` - Rendering
 - `tree.zig` - FileTree data structure
 
