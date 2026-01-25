@@ -118,10 +118,11 @@ pub const AppMode = enum {
 
 ```
 src/
-├── main.zig      # Entry point, CLI args, path validation
-├── app.zig       # App state, event loop, state machine (~1100 lines)
+├── main.zig      # Entry point, CLI args, path validation (~174 lines)
+├── app.zig       # App state, event loop, state machine (~1887 lines)
+├── file_ops.zig  # File operations, path utilities (~390 lines)
 ├── tree.zig      # FileTree data structure (~370 lines)
-└── ui.zig        # libvaxis rendering, highlighting (~420 lines)
+└── ui.zig        # libvaxis rendering, highlighting (~463 lines)
 ```
 
 ### Module Responsibilities
@@ -129,7 +130,8 @@ src/
 | Module | Responsibility |
 |--------|---------------|
 | main.zig | CLI引数処理、パス検証、チルダ展開、App初期化 |
-| app.zig | アプリケーション状態、イベントループ、キー処理、検索ロジック |
+| app.zig | アプリケーション状態、イベントループ、キー処理、検索ロジック、ファイル操作呼び出し |
+| file_ops.zig | ファイル・ディレクトリ操作 (copy/delete)、パス表示フォーマット、バリデーション、Base64エンコード |
 | tree.zig | FileTree構造、展開/折りたたみ、可視インデックス変換 |
 | ui.zig | レンダリング、検索ハイライト、ヘルプ表示、サニタイズ |
 
@@ -224,6 +226,11 @@ pub const App = struct {
     preview_content: ?[]const u8,
     preview_path: ?[]const u8,
     preview_scroll: usize,
+
+    // File operations state
+    marked_files: std.StringHashMap(void),
+    clipboard_files: std.ArrayList([]const u8),
+    clipboard_operation: ClipboardOperation,
 };
 ```
 
@@ -257,10 +264,11 @@ pub const App = struct {
 | 1000+ | 要分割 | モジュール分割を実施 |
 
 **現在のファイルサイズ**:
-- app.zig: ~1100行 (分割検討対象)
+- app.zig: ~1887行 (凝集度を保ちつつ、file_ops.zig を抽出済み)
+- file_ops.zig: ~390行 (適正 - App非依存のファイル操作)
 - tree.zig: ~370行 (適正)
-- ui.zig: ~420行 (適正)
-- main.zig: ~140行 (適正)
+- ui.zig: ~463行 (適正)
+- main.zig: ~174行 (適正)
 
 **重要**: 凝集度（関連する機能がまとまっている）を行数より優先する。
 
@@ -368,10 +376,10 @@ pub const App = struct {
 
 ### [2026-01-24] Clipboard State for Yank/Cut (Phase 2)
 **Context**: yank/cut したファイルの一時保存が必要
-**Decision**: App に ClipboardState struct を追加
+**Decision**: App に clipboard_files と clipboard_operation フィールドを追加
 **Rationale**:
-- `operation: enum { copy, cut }` で操作種別を保持
-- `files: std.ArrayList([]const u8)` でパスリストを保持
+- `clipboard_operation: ClipboardOperation` で操作種別を保持 (none/copy/cut)
+- `clipboard_files: std.ArrayList([]const u8)` でパスリストを保持
 - paste 時に operation に応じてコピーまたは移動
 
 ### [2026-01-24] File Operations Error Handling (Phase 2)
@@ -442,6 +450,25 @@ CLI arg     main.zig              FileTree            Status Bar
 **Decision**: undo機能 (US7, FR-032-FR-037) を削除し、削除確認ダイアログに依存する
 **Rationale**: See `.claude/skills/learned/tui-file-explorer-conventions.md`
 **Note**: コードの複雑さ軽減、シンボリックリンク処理の問題解消も副次的なメリット
+
+### [2026-01-25] file_ops.zig モジュール抽出
+**Context**: app.zig が 2253行と肥大化、ファイル操作関連のコードを分離
+**Decision**: file_ops.zig を新規作成し、App非依存のファイルシステム操作を抽出
+**Result**: app.zig: 2253行 → 1887行 (-366行)、file_ops.zig: 390行 (新規)
+**Extracted Functions**:
+- `isValidFilename()`, `encodeBase64()`: バリデーション・エンコーディング
+- `copyPath()`, `copyDirRecursive()`, `deletePathRecursive()`: ファイル操作
+- `formatDisplayPath()`, `isBinaryContent()`: 表示・判定ユーティリティ
+- `ClipboardOperation` enum
+**Rationale**:
+- **App非依存性**: App state 依存なし、単独テスト可能な関数群
+- **再利用性**: 他のモジュールから直接呼び出し可能
+- **責務分離**: app.zig は状態管理・イベント処理に集中
+- **凝集度**: ファイル操作が一箇所にまとまる
+**Not Extracted**:
+- Search/Preview 機能: App state に強く依存 (mode, cursor, scroll など)
+- 抽出すると凝集度が下がる
+**Note**: Phase 2 評価で search.zig / preview.zig への分割は見送り
 
 ---
 
