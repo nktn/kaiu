@@ -10,9 +10,9 @@
 - [x] T003 README.md から gn キーバインドを削除
 - [x] T004 architecture.md から path_input 状態を削除
 - [x] T005 zig build test で全テスト通過を確認
-- [ ] T006 手動テストで動作確認
+- [x] T006 手動テストで動作確認（Codex レビュー完了）
 
-**Status**: 5/6 完了
+**Status**: 6/6 完了
 
 ## 備考
 
