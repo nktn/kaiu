@@ -62,7 +62,7 @@
 **What it teaches**: How to extract modules from large Zig files without sacrificing cohesion
 
 **Key Insights**:
-- Extract pure functions first (no App state dependencies)
+- Extract App-independent functions first (no App state dependencies)
 - Evaluate state-heavy features separately (cost vs benefit)
 - Use extraction checklist (5+ dependencies = keep in app.zig)
 - Cohesion > arbitrary line count targets
@@ -82,7 +82,7 @@ Keep in app.zig if:
 ```
 
 **Real-world example**: kaiu's file_ops.zig extraction
-- ✅ Extracted: Pure functions (copyDirRecursive, isValidFilename, formatDisplayPath)
+- ✅ Extracted: App-independent functions (copyDirRecursive, isValidFilename, formatDisplayPath)
 - ❌ Not extracted: Search/preview (too state-dependent)
 
 **Applicability**: Any large Zig codebase (or similar languages) where module splitting is needed
@@ -114,8 +114,8 @@ const stat = try std.fs.cwd().statFile(path); // Now safe to follow
 ```
 /tmp/app/temp/ -> /etc/  (malicious symlink)
 
-Without safety: deleteTree() follows symlink → deletes /etc!
-With safety: deleteFile() removes symlink only → /etc untouched
+Without safety: statFile() follows symlink, then deleteTree() called on resolved path
+With safety: readLink() detects symlink, deleteFile() removes symlink only → /etc untouched
 ```
 
 **API Reference Table**:

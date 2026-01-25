@@ -376,10 +376,10 @@ pub const App = struct {
 
 ### [2026-01-24] Clipboard State for Yank/Cut (Phase 2)
 **Context**: yank/cut したファイルの一時保存が必要
-**Decision**: App に ClipboardState struct を追加
+**Decision**: App に clipboard_files と clipboard_operation フィールドを追加
 **Rationale**:
-- `operation: enum { copy, cut }` で操作種別を保持
-- `files: std.ArrayList([]const u8)` でパスリストを保持
+- `clipboard_operation: ClipboardOperation` で操作種別を保持 (none/copy/cut)
+- `clipboard_files: std.ArrayList([]const u8)` でパスリストを保持
 - paste 時に operation に応じてコピーまたは移動
 
 ### [2026-01-24] File Operations Error Handling (Phase 2)
