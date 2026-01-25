@@ -4,6 +4,7 @@ const tree = @import("tree.zig");
 const ui = @import("ui.zig");
 const file_ops = @import("file_ops.zig");
 const vcs = @import("vcs.zig");
+const image = @import("image.zig");
 
 pub const AppMode = enum {
     tree_view,
@@ -65,6 +66,10 @@ pub const App = struct {
     preview_content: ?[]const u8,
     preview_path: ?[]const u8,
     preview_scroll: usize,
+    // Image preview state (Phase 3 - US2)
+    preview_is_image: bool,
+    preview_image: ?vaxis.Image,
+    preview_image_dims: ?image.ImageDimensions,
     should_quit: bool,
     tty: vaxis.Tty,
     vx: vaxis.Vaxis,
@@ -125,6 +130,9 @@ pub const App = struct {
             .preview_content = null,
             .preview_path = null,
             .preview_scroll = 0,
+            .preview_is_image = false,
+            .preview_image = null,
+            .preview_image_dims = null,
             .should_quit = false,
             .tty = undefined,
             .vx = undefined,
@@ -172,6 +180,10 @@ pub const App = struct {
         }
         if (self.preview_path) |path| {
             self.allocator.free(path);
+        }
+        // Free image from terminal memory if loaded
+        if (self.preview_image) |img| {
+            self.vx.freeImage(self.tty.writer(), img.id);
         }
         if (self.search_query) |query| {
             self.allocator.free(query);
@@ -622,8 +634,21 @@ pub const App = struct {
             self.allocator.free(p);
             self.preview_path = null;
         }
+        // Free previous image if any
+        if (self.preview_image) |img| {
+            self.vx.freeImage(self.tty.writer(), img.id);
+            self.preview_image = null;
+        }
+        self.preview_is_image = false;
+        self.preview_image_dims = null;
 
-        // Read file
+        // Check if file is an image (T030)
+        if (image.isImageFile(path)) {
+            try self.openImagePreview(path);
+            return;
+        }
+
+        // Read file (text preview)
         const file = std.fs.cwd().openFile(path, .{}) catch |err| {
             switch (err) {
                 error.AccessDenied => {
@@ -683,6 +708,64 @@ pub const App = struct {
         self.mode = .preview;
     }
 
+    /// Open image preview (T030, T031, T035, T036)
+    fn openImagePreview(self: *Self, path: []const u8) !void {
+        self.preview_is_image = true;
+        self.preview_path = try self.allocator.dupe(u8, path);
+
+        // Check file size (T036: >10MB is too large)
+        if (image.isImageTooLarge(path)) {
+            self.preview_content = try self.allocator.dupe(u8, "[Image too large to preview]");
+            self.preview_scroll = 0;
+            self.mode = .preview;
+            return;
+        }
+
+        // Get image dimensions (T031)
+        self.preview_image_dims = image.getImageDimensions(path);
+
+        // Try to load image using Kitty Graphics Protocol
+        if (self.vx.caps.kitty_graphics) {
+            self.preview_image = self.vx.loadImage(
+                self.allocator,
+                self.tty.writer(),
+                .{ .path = path },
+            ) catch null;
+        }
+
+        // If image load failed or no Kitty support, show fallback (T033)
+        if (self.preview_image == null) {
+            const dims = self.preview_image_dims;
+            const file = std.fs.openFileAbsolute(path, .{}) catch {
+                self.preview_content = try self.allocator.dupe(u8, "[Cannot display image]");
+                self.preview_scroll = 0;
+                self.mode = .preview;
+                return;
+            };
+            defer file.close();
+
+            const stat = file.stat() catch {
+                self.preview_content = try self.allocator.dupe(u8, "[Cannot display image]");
+                self.preview_scroll = 0;
+                self.mode = .preview;
+                return;
+            };
+
+            var buf: [128]u8 = undefined;
+            const filename = std.fs.path.basename(path);
+            const size_kb = stat.size / 1024;
+            const fallback_msg = if (dims) |d|
+                std.fmt.bufPrint(&buf, "[Image: {s} ({d}x{d}, {d}KB)]", .{ filename, d.width, d.height, size_kb }) catch "[Image]"
+            else
+                std.fmt.bufPrint(&buf, "[Image: {s} ({d}KB)]", .{ filename, size_kb }) catch "[Image]";
+
+            self.preview_content = try self.allocator.dupe(u8, fallback_msg);
+        }
+
+        self.preview_scroll = 0;
+        self.mode = .preview;
+    }
+
     fn closePreview(self: *Self) void {
         if (self.preview_content) |content| {
             self.allocator.free(content);
@@ -692,6 +775,13 @@ pub const App = struct {
             self.allocator.free(path);
             self.preview_path = null;
         }
+        // Reset image preview state
+        if (self.preview_image) |img| {
+            self.vx.freeImage(self.tty.writer(), img.id);
+            self.preview_image = null;
+        }
+        self.preview_is_image = false;
+        self.preview_image_dims = null;
         self.mode = .tree_view;
     }
 
@@ -1568,7 +1658,10 @@ pub const App = struct {
                 }
             },
             .preview => {
-                if (self.preview_content) |content| {
+                if (self.preview_is_image) {
+                    // Image preview (T032, T033, T034)
+                    try self.renderImagePreview(win, arena);
+                } else if (self.preview_content) |content| {
                     const filename = if (self.preview_path) |p| std.fs.path.basename(p) else "preview";
                     try ui.renderPreview(win, content, filename, self.preview_scroll, self.render_arena.allocator());
                 }
@@ -1748,6 +1841,51 @@ pub const App = struct {
             }, .{ .row_offset = row, .col_offset = 0 });
         }
     }
+    // ===== Image Preview Rendering (Phase 3 - US2) =====
+
+    /// Render image preview (T032, T033, T034)
+    fn renderImagePreview(self: *Self, win: vaxis.Window, arena: std.mem.Allocator) !void {
+        const height = win.height;
+        if (height == 0) return;
+
+        const filename = if (self.preview_path) |p| std.fs.path.basename(p) else "image";
+
+        // Build title with dimensions (T034)
+        const title = if (self.preview_image_dims) |dims|
+            try std.fmt.allocPrint(arena, "{s} ({d}x{d})", .{ filename, dims.width, dims.height })
+        else
+            try std.fmt.allocPrint(arena, "{s}", .{filename});
+
+        // Render title bar
+        _ = win.printSegment(.{
+            .text = title,
+            .style = .{ .bold = true, .reverse = true },
+        }, .{ .row_offset = 0, .col_offset = 0 });
+
+        // If we have a loaded image, display it (T032)
+        if (self.preview_image) |img| {
+            // Create a child window for the image (below title bar)
+            const img_win = win.child(.{
+                .y_off = 1,
+                .height = if (height > 1) height - 1 else 1,
+            });
+
+            // Draw the image scaled to fit the window
+            try img.draw(img_win, .{ .scale = .fit });
+        } else if (self.preview_content) |content| {
+            // Fallback: show text message centered (T033)
+            const row: u16 = if (height > 3) height / 2 else 1;
+            const col: u16 = if (content.len < win.width)
+                (win.width - @as(u16, @intCast(content.len))) / 2
+            else
+                0;
+            _ = win.printSegment(.{
+                .text = content,
+                .style = .{ .fg = .{ .index = 8 } }, // dim
+            }, .{ .row_offset = row, .col_offset = col });
+        }
+    }
+
     // ===== VCS Integration (Phase 3 - US1) =====
 
     /// Refresh VCS status for the current directory (T019)

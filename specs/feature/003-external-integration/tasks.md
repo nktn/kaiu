@@ -3,7 +3,7 @@
 **Input**: Design documents from `/specs/feature/003-external-integration/`
 **Prerequisites**: plan.md (required), spec.md (required for user stories)
 
-**Status**: In Progress (Phase 1-3 Complete: 25/70 tasks)
+**Status**: In Progress (Phase 1-4 Complete: 36/70 tasks)
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -80,17 +80,17 @@
 
 ### Implementation for User Story 2
 
-- [ ] T026 [P] [US2] Implement detectImageFormat() in `src/image.zig` - check file extension and magic bytes
-- [ ] T027 [P] [US2] Implement getImageDimensions() in `src/image.zig` - read PNG IHDR, JPG SOF0, GIF LSD, WebP VP8
-- [ ] T028 [US2] Research libvaxis image API in `src/image.zig` - check vaxis.graphics for Kitty/Sixel support
-- [ ] T029 [US2] Implement detectGraphicsProtocol() in `src/image.zig` - query terminal capabilities
-- [ ] T030 [US2] Update openPreview() in `src/app.zig` - detect image files using image.zig
-- [ ] T031 [US2] Set preview_is_image and preview_image_dims in `src/app.zig` when opening image preview
-- [ ] T032 [US2] Implement renderImagePreview() in `src/ui.zig` - display image using detected protocol
-- [ ] T033 [US2] Implement renderImageFallback() in `src/ui.zig` - show `[Image: filename (WxH, size)]` text
-- [ ] T034 [US2] Update preview title bar in `src/ui.zig` - show filename and dimensions
-- [ ] T035 [US2] Handle corrupted images in `src/image.zig` - return error that triggers fallback display
-- [ ] T036 [US2] Handle large images (>10MB) in `src/app.zig` - show size warning instead of loading
+- [x] T026 [P] [US2] Implement detectImageFormat() in `src/image.zig` - check file extension and magic bytes
+- [x] T027 [P] [US2] Implement getImageDimensions() in `src/image.zig` - read PNG IHDR, JPG SOF0, GIF LSD, WebP VP8
+- [x] T028 [US2] Research libvaxis image API in `src/image.zig` - check vaxis.graphics for Kitty/Sixel support
+- [x] T029 [US2] Implement detectGraphicsProtocol() in `src/image.zig` - vaxis handles via caps.kitty_graphics
+- [x] T030 [US2] Update openPreview() in `src/app.zig` - detect image files using image.zig
+- [x] T031 [US2] Set preview_is_image and preview_image_dims in `src/app.zig` when opening image preview
+- [x] T032 [US2] Implement renderImagePreview() in `src/app.zig` - display image using Kitty Graphics Protocol
+- [x] T033 [US2] Implement renderImageFallback() in `src/app.zig` - show `[Image: filename (WxH, size)]` text
+- [x] T034 [US2] Update preview title bar in `src/app.zig` - show filename and dimensions
+- [x] T035 [US2] Handle corrupted images in `src/image.zig` - return error that triggers fallback display
+- [x] T036 [US2] Handle large images (>10MB) in `src/app.zig` - show size warning instead of loading
 
 **Checkpoint**: Image preview functional - images display or show fallback, dimensions shown in title
 

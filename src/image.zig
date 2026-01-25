@@ -156,7 +156,7 @@ fn getJpgDimensions(path: []const u8) ?ImageDimensions {
     // Scan for SOF0 or SOF2 marker
     while (true) {
         // Read marker
-        if (file.read(buf[0..2]) catch return null != 2) return null;
+        if ((file.read(buf[0..2]) catch return null) != 2) return null;
 
         if (buf[0] != 0xFF) return null;
 
@@ -165,7 +165,7 @@ fn getJpgDimensions(path: []const u8) ?ImageDimensions {
         // SOF0 (0xC0) or SOF2 (0xC2) - baseline or progressive DCT
         if (marker == 0xC0 or marker == 0xC2) {
             // Read length + precision + height + width
-            if (file.read(buf[0..7]) catch return null != 7) return null;
+            if ((file.read(buf[0..7]) catch return null) != 7) return null;
 
             const height = std.mem.readInt(u16, buf[3..5], .big);
             const width = std.mem.readInt(u16, buf[5..7], .big);
@@ -174,7 +174,7 @@ fn getJpgDimensions(path: []const u8) ?ImageDimensions {
         }
 
         // Skip to next marker
-        if (file.read(buf[0..2]) catch return null != 2) return null;
+        if ((file.read(buf[0..2]) catch return null) != 2) return null;
         const length = std.mem.readInt(u16, buf[0..2], .big);
         if (length < 2) return null;
         file.seekBy(@as(i64, length) - 2) catch return null;
@@ -191,7 +191,7 @@ fn getGifDimensions(path: []const u8) ?ImageDimensions {
 
     // Read width and height (little-endian u16)
     var buf: [4]u8 = undefined;
-    if (file.read(&buf) catch return null != 4) return null;
+    if ((file.read(&buf) catch return null) != 4) return null;
 
     const width = std.mem.readInt(u16, buf[0..2], .little);
     const height = std.mem.readInt(u16, buf[2..4], .little);
@@ -210,12 +210,12 @@ fn getWebpDimensions(path: []const u8) ?ImageDimensions {
     var buf: [10]u8 = undefined;
 
     // Read chunk header
-    if (file.read(buf[0..8]) catch return null != 8) return null;
+    if ((file.read(buf[0..8]) catch return null) != 8) return null;
 
     // VP8X (extended format)
     if (std.mem.eql(u8, buf[0..4], "VP8X")) {
         // Skip flags (4 bytes), read canvas width/height
-        if (file.read(buf[0..10]) catch return null != 10) return null;
+        if ((file.read(buf[0..10]) catch return null) != 10) return null;
 
         // Width and height are 24-bit little-endian, stored as (value - 1)
         const width: u32 = @as(u32, buf[4]) | (@as(u32, buf[5]) << 8) | (@as(u32, buf[6]) << 16);
@@ -227,7 +227,7 @@ fn getWebpDimensions(path: []const u8) ?ImageDimensions {
     // VP8L (lossless)
     if (std.mem.eql(u8, buf[0..4], "VP8L")) {
         // Skip chunk size (already read), read signature and dimensions
-        if (file.read(buf[0..5]) catch return null != 5) return null;
+        if ((file.read(buf[0..5]) catch return null) != 5) return null;
 
         // Signature should be 0x2F
         if (buf[0] != 0x2F) return null;
@@ -246,7 +246,7 @@ fn getWebpDimensions(path: []const u8) ?ImageDimensions {
         file.seekBy(7) catch return null;
 
         // Read start code and dimensions
-        if (file.read(buf[0..7]) catch return null != 7) return null;
+        if ((file.read(buf[0..7]) catch return null) != 7) return null;
 
         // Start code should be 0x9D 0x01 0x2A
         if (buf[0] != 0x9D or buf[1] != 0x01 or buf[2] != 0x2A) return null;
