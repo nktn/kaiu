@@ -143,6 +143,35 @@ pub fn copyDirRecursive(src_path: []const u8, dest_path: []const u8) !void {
     }
 }
 
+/// Format path for display, replacing home directory with ~
+/// Caller must free the returned string.
+pub fn formatDisplayPath(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
+    const home = std.posix.getenv("HOME") orelse return try allocator.dupe(u8, path);
+
+    if (std.mem.startsWith(u8, path, home)) {
+        if (path.len == home.len) {
+            // Exact home directory
+            return try allocator.dupe(u8, "~");
+        }
+        if (path.len > home.len and path[home.len] == '/') {
+            // Path under home directory: ~/...
+            return try std.fmt.allocPrint(allocator, "~{s}", .{path[home.len..]});
+        }
+    }
+    // Path outside home or doesn't match home prefix properly
+    return try allocator.dupe(u8, path);
+}
+
+/// Check if content contains null bytes (indicates binary file)
+pub fn isBinaryContent(content: []const u8) bool {
+    // Check first 8KB for null bytes
+    const check_len = @min(content.len, 8192);
+    for (content[0..check_len]) |byte| {
+        if (byte == 0) return true;
+    }
+    return false;
+}
+
 // ===== Tests =====
 
 test "isValidFilename" {
@@ -291,4 +320,71 @@ test "encodeBase64 produces valid output" {
     const result3 = try encodeBase64(allocator, "Hello, World!");
     defer allocator.free(result3);
     try std.testing.expectEqualStrings("SGVsbG8sIFdvcmxkIQ==", result3);
+}
+
+test "isBinaryContent detects null bytes" {
+    // Text content should not be detected as binary
+    const text = "Hello, world!\nThis is text.";
+    try std.testing.expect(!isBinaryContent(text));
+
+    // Content with null byte should be detected as binary
+    const binary = "Hello\x00World";
+    try std.testing.expect(isBinaryContent(binary));
+
+    // Empty content is not binary
+    try std.testing.expect(!isBinaryContent(""));
+}
+
+test "formatDisplayPath replaces home prefix with tilde" {
+    const allocator = std.testing.allocator;
+
+    if (std.posix.getenv("HOME")) |home| {
+        // Path under home directory should show ~ prefix
+        const home_subpath = try std.fmt.allocPrint(allocator, "{s}/Documents/github/kaiu", .{home});
+        defer allocator.free(home_subpath);
+
+        const display = try formatDisplayPath(allocator, home_subpath);
+        defer allocator.free(display);
+
+        try std.testing.expectEqualStrings("~/Documents/github/kaiu", display);
+    }
+}
+
+test "formatDisplayPath handles home directory exactly" {
+    const allocator = std.testing.allocator;
+
+    if (std.posix.getenv("HOME")) |home| {
+        // Exact home directory should show just "~"
+        const display = try formatDisplayPath(allocator, home);
+        defer allocator.free(display);
+
+        try std.testing.expectEqualStrings("~", display);
+    }
+}
+
+test "formatDisplayPath preserves paths outside home" {
+    const allocator = std.testing.allocator;
+
+    // Path outside home directory should be unchanged
+    const path = "/usr/local/bin";
+    const display = try formatDisplayPath(allocator, path);
+    defer allocator.free(display);
+
+    try std.testing.expectEqualStrings("/usr/local/bin", display);
+}
+
+test "formatDisplayPath handles path with home prefix but no slash" {
+    const allocator = std.testing.allocator;
+
+    if (std.posix.getenv("HOME")) |home| {
+        // Path like "/home/user2" when HOME is "/home/user" should NOT be replaced
+        const similar_path = try std.fmt.allocPrint(allocator, "{s}2", .{home});
+        defer allocator.free(similar_path);
+
+        const display = try formatDisplayPath(allocator, similar_path);
+        defer allocator.free(display);
+
+        // Should NOT start with ~ since it's not actually under home
+        try std.testing.expectEqualStrings(similar_path, display);
+    }
 }

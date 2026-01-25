@@ -16,14 +16,14 @@
 - [x] T009 zig build test で全テスト通過を確認
 - [x] T010 手動テストで動作確認
 
-**Status**: 10/10 完了
+**Status**: 10/10 完了 + Phase 2 評価完了
 
-## 実装結果
+## 実装結果 (Phase 1 + Phase 1b)
 
 | ファイル | 変更前 | 変更後 |
 |---------|-------|-------|
-| app.zig | 2253行 | 1983行 (-270行) |
-| file_ops.zig | - | 300行 (新規) |
+| app.zig | 2253行 | 1887行 (-366行) |
+| file_ops.zig | - | 390行 (新規) |
 
 ### 移動した機能
 
@@ -33,12 +33,23 @@
 - `copyPath()` - ファイル/ディレクトリコピー
 - `copyDirRecursive()` - 再帰コピー
 - `deletePathRecursive()` - 再帰削除
+- `formatDisplayPath()` - パス表示フォーマット
+- `isBinaryContent()` - バイナリ判定
 
-### 残留機能 (Phase 2 で検討)
+## Phase 2 評価結果
 
-marking/yank/cut/paste/rename/new file/new dir/delete の mode handler は
-App state (input_buffer, mode, status_message) と密結合のため app.zig に残留。
-これらは App のメソッドから file_ops の関数を呼び出す形で利用。
+### search.zig 分割評価
+- Search 関連: ~76行
+- App state 依存: file_tree, cursor, show_hidden, input_buffer, search_matches
+- **結論**: 分割メリット少、現状維持
+
+### preview.zig 分割評価
+- Preview 関連: ~60行
+- App state 依存: preview_content, preview_path, preview_scroll, mode
+- **結論**: 分割メリット少、現状維持
+
+### 最終判断
+app.zig 1887行は許容範囲。これ以上の分割は複雑化するため現状維持。
 
 ## 備考
 
