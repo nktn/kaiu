@@ -46,10 +46,10 @@ pub const App = struct {
 };
 ```
 
-**AFTER: Extract pure functions**
+**AFTER: Extract App-independent functions**
 
 ```zig
-// file_ops.zig (390 lines) - Pure file operations
+// file_ops.zig (390 lines) - App-independent file operations
 pub fn isValidFilename(name: []const u8) bool { ... }
 pub fn copyDirRecursive(src: []const u8, dest: []const u8) !void { ... }
 pub fn formatDisplayPath(allocator: Allocator, path: []const u8) ![]const u8 { ... }
@@ -132,7 +132,7 @@ Use this checklist before extracting:
 
 **Actual result** (kaiu):
 - app.zig: 2253 → 1887 lines (-366 lines)
-- file_ops.zig: 390 lines (new, pure functions)
+- file_ops.zig: 390 lines (new, App-independent functions)
 - **Outcome**: Improved without sacrificing cohesion
 
 ## When to Use

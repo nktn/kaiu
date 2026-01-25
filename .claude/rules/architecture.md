@@ -226,6 +226,11 @@ pub const App = struct {
     preview_content: ?[]const u8,
     preview_path: ?[]const u8,
     preview_scroll: usize,
+
+    // File operations state
+    marked_files: std.StringHashMap(void),
+    clipboard_files: std.ArrayList([]const u8),
+    clipboard_operation: ClipboardOperation,
 };
 ```
 
@@ -260,7 +265,7 @@ pub const App = struct {
 
 **現在のファイルサイズ**:
 - app.zig: ~1887行 (凝集度を保ちつつ、file_ops.zig を抽出済み)
-- file_ops.zig: ~390行 (適正 - 純粋なファイル操作)
+- file_ops.zig: ~390行 (適正 - App非依存のファイル操作)
 - tree.zig: ~370行 (適正)
 - ui.zig: ~463行 (適正)
 - main.zig: ~174行 (適正)
@@ -448,7 +453,7 @@ CLI arg     main.zig              FileTree            Status Bar
 
 ### [2026-01-25] file_ops.zig モジュール抽出
 **Context**: app.zig が 2253行と肥大化、ファイル操作関連のコードを分離
-**Decision**: file_ops.zig を新規作成し、純粋なファイルシステム操作を抽出
+**Decision**: file_ops.zig を新規作成し、App非依存のファイルシステム操作を抽出
 **Result**: app.zig: 2253行 → 1887行 (-366行)、file_ops.zig: 390行 (新規)
 **Extracted Functions**:
 - `isValidFilename()`, `encodeBase64()`: バリデーション・エンコーディング
@@ -456,7 +461,7 @@ CLI arg     main.zig              FileTree            Status Bar
 - `formatDisplayPath()`, `isBinaryContent()`: 表示・判定ユーティリティ
 - `ClipboardOperation` enum
 **Rationale**:
-- **純粋性**: App 依存なし、テスト可能な関数群
+- **App非依存性**: App state 依存なし、単独テスト可能な関数群
 - **再利用性**: 他のモジュールから直接呼び出し可能
 - **責務分離**: app.zig は状態管理・イベント処理に集中
 - **凝集度**: ファイル操作が一箇所にまとまる

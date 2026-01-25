@@ -159,10 +159,11 @@ Consider this directory structure:
 
 **Without symlink safety**:
 ```zig
-// ❌ DANGEROUS - follows symlink, deletes /etc!
-const stat = try std.fs.cwd().statFile("/tmp/my_app/temp");
+// ❌ DANGEROUS - statFile follows symlink, then deleteTree deletes target
+const stat = try std.fs.cwd().statFile("/tmp/my_app/temp"); // stat.kind = .directory (from /etc)
 if (stat.kind == .directory) {
-    try std.fs.cwd().deleteTree("/tmp/my_app/temp"); // Deletes /etc!!!
+    // deleteTree on symlink path deletes the symlink AND its contents if resolved
+    try std.fs.cwd().deleteTree("/tmp/my_app/temp");
 }
 ```
 
