@@ -1,6 +1,7 @@
 const std = @import("std");
 const vaxis = @import("vaxis");
 const tree = @import("tree.zig");
+const vcs = @import("vcs.zig");
 
 /// Sanitize text for safe terminal display by replacing control characters.
 /// Control chars (0x00-0x1F, 0x7F) and escape (0x1B) are replaced with '?'.
@@ -36,6 +37,7 @@ pub fn renderTree(
     search_query: ?[]const u8,
     search_matches: []const usize,
     marked_files: *const std.StringHashMap(void),
+    vcs_status: ?*const vcs.VCSStatusResult,
     arena: std.mem.Allocator,
 ) !void {
     const height = win.height;
@@ -62,13 +64,33 @@ pub fn renderTree(
             search_query
         else
             null;
-        try renderEntry(win, entry, row, is_cursor, is_marked, entry_query, arena);
+
+        // Get VCS status for this file (relative path)
+        const file_vcs_status = getFileVCSStatus(ft, entry.path, vcs_status);
+        try renderEntry(win, entry, row, is_cursor, is_marked, entry_query, file_vcs_status, arena);
 
         row += 1;
         visible_index += 1;
     }
 
     // Status bar is now rendered separately by app.zig
+}
+
+/// Get VCS status for a file path (convert absolute to relative)
+fn getFileVCSStatus(ft: *tree.FileTree, path: []const u8, vcs_status: ?*const vcs.VCSStatusResult) ?vcs.VCSFileStatus {
+    const status = vcs_status orelse return null;
+
+    // Convert absolute path to relative path from repo root
+    if (std.mem.startsWith(u8, path, ft.root_path)) {
+        var relative = path[ft.root_path.len..];
+        // Remove leading slash
+        if (relative.len > 0 and relative[0] == '/') {
+            relative = relative[1..];
+        }
+        return status.get(relative);
+    }
+
+    return null;
 }
 
 /// Check if index is in matches list (linear search, but matches are typically few)
@@ -86,6 +108,7 @@ fn renderEntry(
     is_cursor: bool,
     is_marked: bool,
     search_query: ?[]const u8,
+    vcs_file_status: ?vcs.VCSFileStatus,
     arena: std.mem.Allocator,
 ) !void {
     var col: u16 = 0;
@@ -142,8 +165,24 @@ fn renderEntry(
         const space_result = win.printSegment(.{ .text = "  " }, .{ .row_offset = row, .col_offset = col });
         col = space_result.col;
 
+        // Determine style based on VCS status (T022)
+        // Colors per FR-003:
+        // - Green (2): New/Untracked
+        // - Yellow (3): Modified
+        // - Red (1): Deleted
+        // - Cyan (6): Renamed
+        // - Magenta (5): Conflict
         const style: vaxis.Style = if (entry.is_hidden)
             .{ .fg = .{ .index = 8 } } // dim for hidden
+        else if (vcs_file_status) |status|
+            switch (status) {
+                .untracked => .{ .fg = .{ .index = 2 } }, // green
+                .modified => .{ .fg = .{ .index = 3 } }, // yellow
+                .deleted => .{ .fg = .{ .index = 1 } }, // red
+                .renamed => .{ .fg = .{ .index = 6 } }, // cyan
+                .conflict => .{ .fg = .{ .index = 5 } }, // magenta
+                .unchanged => .{},
+            }
         else
             .{};
 

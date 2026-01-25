@@ -3,7 +3,7 @@
 **Input**: Design documents from `/specs/feature/003-external-integration/`
 **Prerequisites**: plan.md (required), spec.md (required for user stories)
 
-**Status**: Not Started
+**Status**: In Progress (Phase 1-3 Complete: 25/70 tasks)
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -17,10 +17,10 @@
 
 **Purpose**: Create new module files and basic structure
 
-- [ ] T001 [P] Create `src/vcs.zig` module with VCSType, VCSMode, VCSFileStatus enums
-- [ ] T002 [P] Create `src/image.zig` module with ImageFormat, ImageDimensions structs
-- [ ] T003 [P] Create `src/watcher.zig` module with WatchEvent enum and Watcher struct placeholder
-- [ ] T004 Add new modules to `build.zig` imports
+- [x] T001 [P] Create `src/vcs.zig` module with VCSType, VCSMode, VCSFileStatus enums
+- [x] T002 [P] Create `src/image.zig` module with ImageFormat, ImageDimensions structs
+- [x] T003 [P] Create `src/watcher.zig` module with WatchEvent enum and Watcher struct placeholder
+- [x] T004 Add new modules to `build.zig` imports (N/A - Zig auto-resolves imports)
 
 ---
 
@@ -30,13 +30,13 @@
 
 **⚠️ CRITICAL**: Setup module imports before proceeding
 
-- [ ] T005 Add VCS state fields to App struct in `src/app.zig` (vcs_type, vcs_mode, vcs_branch, vcs_status)
+- [x] T005 Add VCS state fields to App struct in `src/app.zig` (vcs_type, vcs_mode, vcs_branch, vcs_status)
 - [ ] T006 Add file watching state fields to App struct in `src/app.zig` (watching_enabled, watcher, pending_refresh, last_change_time)
 - [ ] T007 Add image preview state fields to App struct in `src/app.zig` (preview_is_image, preview_image_dims)
 - [ ] T008 Add drop state fields to App struct in `src/app.zig` (drop_pending, drop_target_dir)
-- [ ] T009 Add `confirm_overwrite` to AppMode enum in `src/app.zig`
-- [ ] T010 Initialize new state fields in App.init() in `src/app.zig`
-- [ ] T011 Cleanup new state fields in App.deinit() in `src/app.zig`
+- [x] T009 Add `confirm_overwrite` to AppMode enum in `src/app.zig`
+- [x] T010 Initialize new state fields in App.init() in `src/app.zig`
+- [x] T011 Cleanup new state fields in App.deinit() in `src/app.zig`
 
 **Checkpoint**: State structure ready - user story implementation can begin
 
@@ -50,21 +50,21 @@
 
 ### Implementation for User Story 1
 
-- [ ] T012 [US1] Implement detectVCS(path) function in `src/vcs.zig` - check for .git/.jj directories
-- [ ] T013 [US1] Implement executeCommand() helper in `src/vcs.zig` using std.process.Child
-- [ ] T014 [US1] Implement getGitStatus() in `src/vcs.zig` - execute `git status --porcelain=v1 -z` and parse output
-- [ ] T015 [US1] Implement getGitBranch() in `src/vcs.zig` - execute `git branch --show-current`
-- [ ] T016 [US1] Implement getJJStatus() in `src/vcs.zig` - execute `jj status --color=never` and parse output
-- [ ] T017 [US1] Implement getJJInfo() in `src/vcs.zig` - execute `jj log` for change ID and bookmark
-- [ ] T018 [US1] Add `gv` multi-key handler in `src/app.zig` - cycle VCS mode (Auto → JJ → Git → Auto)
-- [ ] T019 [US1] Implement refreshVCSStatus() in `src/app.zig` - call vcs.zig functions and populate vcs_status
-- [ ] T020 [US1] Call refreshVCSStatus() on app startup in `src/app.zig` init()
-- [ ] T021 [US1] Call refreshVCSStatus() in reloadTree() in `src/app.zig`
-- [ ] T022 [US1] Update renderEntry() in `src/ui.zig` - apply VCS status colors (green/yellow/red/cyan/magenta)
-- [ ] T023 [US1] Update renderStatusBar() in `src/ui.zig` - display branch name `[main]` or JJ info `@abc123 (main)`
-- [ ] T024 [US1] Handle VCS errors gracefully in `src/vcs.zig` - return empty status on failure
+- [x] T012 [US1] Implement detectVCS(path) function in `src/vcs.zig` - check for .git/.jj directories
+- [x] T013 [US1] Implement executeCommand() helper in `src/vcs.zig` using std.process.Child
+- [x] T014 [US1] Implement getGitStatus() in `src/vcs.zig` - execute `git status --porcelain=v1 -z` and parse output
+- [x] T015 [US1] Implement getGitBranch() in `src/vcs.zig` - execute `git branch --show-current`
+- [x] T016 [US1] Implement getJJStatus() in `src/vcs.zig` - execute `jj status --color=never` and parse output
+- [x] T017 [US1] Implement getJJInfo() in `src/vcs.zig` - execute `jj log` for change ID and bookmark
+- [x] T018 [US1] Add `gv` multi-key handler in `src/app.zig` - cycle VCS mode (Auto → JJ → Git → Auto)
+- [x] T019 [US1] Implement refreshVCSStatus() in `src/app.zig` - call vcs.zig functions and populate vcs_status
+- [x] T020 [US1] Call refreshVCSStatus() on app startup in `src/app.zig` init()
+- [x] T021 [US1] Call refreshVCSStatus() in reloadTree() in `src/app.zig`
+- [x] T022 [US1] Update renderEntry() in `src/ui.zig` - apply VCS status colors (green/yellow/red/cyan/magenta)
+- [x] T023 [US1] Update renderStatusBar() in `src/ui.zig` - display branch name `[main]` or JJ info `@abc123 (main)`
+- [x] T024 [US1] Handle VCS errors gracefully in `src/vcs.zig` - return empty status on failure
 - [ ] T024a [US1] Add 2-second timeout for VCS commands in `src/vcs.zig` - prevent UI freeze on slow repos
-- [ ] T025 [US1] Add status message for VCS mode change in `src/app.zig`
+- [x] T025 [US1] Add status message for VCS mode change in `src/app.zig`
 
 **Checkpoint**: VCS status display fully functional - files show colors, branch in status bar, gv cycles modes
 

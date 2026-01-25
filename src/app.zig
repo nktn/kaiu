@@ -3,6 +3,7 @@ const vaxis = @import("vaxis");
 const tree = @import("tree.zig");
 const ui = @import("ui.zig");
 const file_ops = @import("file_ops.zig");
+const vcs = @import("vcs.zig");
 
 pub const AppMode = enum {
     tree_view,
@@ -12,6 +13,7 @@ pub const AppMode = enum {
     new_file,
     new_dir,
     confirm_delete,
+    confirm_overwrite, // For drop filename conflict (US3)
     help,
 };
 
@@ -98,6 +100,11 @@ pub const App = struct {
     // Rename state - stores the path being renamed
     rename_target_path: ?[]const u8,
 
+    // VCS State (Phase 3 - US1)
+    vcs_type: vcs.VCSType,
+    vcs_mode: vcs.VCSMode,
+    vcs_status: ?vcs.VCSStatusResult,
+
     const Self = @This();
 
     // Use ClipboardOperation from file_ops module
@@ -136,6 +143,9 @@ pub const App = struct {
             .clipboard_files = .empty,
             .clipboard_operation = .none,
             .rename_target_path = null,
+            .vcs_type = .none,
+            .vcs_mode = .auto,
+            .vcs_status = null,
         };
 
         self.tty = try vaxis.Tty.init(&self.tty_buf);
@@ -187,6 +197,10 @@ pub const App = struct {
         self.clipboard_files.deinit(self.allocator);
         if (self.rename_target_path) |path| {
             self.allocator.free(path);
+        }
+        // Free VCS status
+        if (self.vcs_status) |*status| {
+            status.deinit();
         }
         self.render_arena.deinit();
         self.allocator.destroy(self);
@@ -256,6 +270,7 @@ pub const App = struct {
             .new_file => try self.handleNewFileKey(key, key_char),
             .new_dir => try self.handleNewDirKey(key, key_char),
             .confirm_delete => try self.handleConfirmDeleteKey(key_char),
+            .confirm_overwrite => {}, // TODO: Will be implemented in US3 (Drag & Drop)
             .help => self.handleHelpKey(),
         }
     }
@@ -307,6 +322,11 @@ pub const App = struct {
                     'g' => {
                         // gg - jump to top
                         self.jumpToTop();
+                        return;
+                    },
+                    'v' => {
+                        // gv - cycle VCS mode (T018)
+                        self.cycleVCSMode();
                         return;
                     },
                     else => {
@@ -875,6 +895,9 @@ pub const App = struct {
             if (self.input_buffer.items.len > 0) {
                 try self.updateSearchResults();
             }
+
+            // Refresh VCS status (T021)
+            self.refreshVCSStatus();
         }
     }
 
@@ -1519,7 +1542,7 @@ pub const App = struct {
         const arena = self.render_arena.allocator();
 
         switch (self.mode) {
-            .tree_view, .search, .rename, .new_file, .new_dir, .confirm_delete => {
+            .tree_view, .search, .rename, .new_file, .new_dir, .confirm_delete, .confirm_overwrite => {
                 // Main tree view (leave room for status bar if height > 2)
                 const tree_height: u16 = if (height > 2) height - 2 else height;
                 var tree_win = win.child(.{ .height = tree_height });
@@ -1532,7 +1555,9 @@ pub const App = struct {
                         self.input_buffer.items
                     else
                         null;
-                    try ui.renderTree(tree_win, ft, self.cursor, self.scroll_offset, self.show_hidden, search_query, self.search_matches.items, &self.marked_files, arena);
+                    // Pass VCS status for file coloring (T022)
+                    const vcs_status_ptr: ?*const vcs.VCSStatusResult = if (self.vcs_status) |*s| s else null;
+                    try ui.renderTree(tree_win, ft, self.cursor, self.scroll_offset, self.show_hidden, search_query, self.search_matches.items, &self.marked_files, vcs_status_ptr, arena);
                 } else {
                     _ = tree_win.printSegment(.{ .text = "No directory loaded" }, .{});
                 }
@@ -1638,10 +1663,21 @@ pub const App = struct {
                             .style = .{ .fg = .{ .index = 6 }, .bold = true }, // cyan, bold
                         }, .{ .row_offset = row, .col_offset = 3 });
                     } else {
-                        _ = win.printSegment(.{
+                        const path_result = win.printSegment(.{
                             .text = safe_root,
                             .style = .{ .fg = .{ .index = 6 }, .bold = true }, // cyan, bold
                         }, .{ .row_offset = row, .col_offset = 0 });
+
+                        // Display VCS branch info after path (T023)
+                        if (self.getVCSBranchDisplay(arena)) |branch_display| {
+                            _ = win.printSegment(.{
+                                .text = " ",
+                            }, .{ .row_offset = row, .col_offset = path_result.col });
+                            _ = win.printSegment(.{
+                                .text = branch_display,
+                                .style = .{ .fg = .{ .index = 3 } }, // yellow
+                            }, .{ .row_offset = row, .col_offset = path_result.col + 1 });
+                        }
                     }
                 }
 
@@ -1700,6 +1736,7 @@ pub const App = struct {
             .new_file => "Enter:create  Esc:cancel",
             .new_dir => "Enter:create  Esc:cancel",
             .confirm_delete => "y:confirm  n/Esc:cancel",
+            .confirm_overwrite => "o:overwrite  r:rename  Esc:cancel",
             .preview => "j/k:scroll  o:close  q:quit",
             .help => "",
         };
@@ -1710,6 +1747,79 @@ pub const App = struct {
                 .style = .{ .fg = .{ .index = 8 } }, // dim
             }, .{ .row_offset = row, .col_offset = 0 });
         }
+    }
+    // ===== VCS Integration (Phase 3 - US1) =====
+
+    /// Refresh VCS status for the current directory (T019)
+    fn refreshVCSStatus(self: *Self) void {
+        const ft = self.file_tree orelse return;
+
+        // Free previous status
+        if (self.vcs_status) |*status| {
+            status.deinit();
+            self.vcs_status = null;
+        }
+
+        // Detect VCS type
+        self.vcs_type = vcs.detectVCS(ft.root_path);
+
+        // Get status based on mode
+        self.vcs_status = vcs.getVCSStatus(
+            self.allocator,
+            ft.root_path,
+            self.vcs_type,
+            self.vcs_mode,
+        ) catch null;
+    }
+
+    /// Cycle VCS mode and refresh status (T018, T025)
+    fn cycleVCSMode(self: *Self) void {
+        self.vcs_mode = vcs.cycleVCSMode(self.vcs_mode);
+        self.refreshVCSStatus();
+
+        // Show status message
+        const mode_name = vcs.vcsModeName(self.vcs_mode);
+        const msg = std.fmt.bufPrint(&self.status_message_buf, "VCS: {s}", .{mode_name}) catch "VCS mode changed";
+        self.status_message = msg;
+    }
+
+    /// Get VCS status for a file path (for UI rendering)
+    pub fn getFileVCSStatus(self: *const Self, path: []const u8) ?vcs.VCSFileStatus {
+        const status = self.vcs_status orelse return null;
+        const ft = self.file_tree orelse return null;
+
+        // Convert absolute path to relative path from repo root
+        if (std.mem.startsWith(u8, path, ft.root_path)) {
+            var relative = path[ft.root_path.len..];
+            // Remove leading slash
+            if (relative.len > 0 and relative[0] == '/') {
+                relative = relative[1..];
+            }
+            return status.get(relative);
+        }
+
+        return null;
+    }
+
+    /// Get branch/change info for status bar display
+    pub fn getVCSBranchDisplay(self: *const Self, arena: std.mem.Allocator) ?[]const u8 {
+        const status = self.vcs_status orelse return null;
+
+        // JJ format: @changeid (bookmark)
+        if (self.vcs_type == .jj or (self.vcs_type != .none and self.vcs_mode == .jj)) {
+            const change_id = status.branch orelse return null;
+            if (status.bookmark) |bookmark| {
+                return std.fmt.allocPrint(arena, "@{s} ({s})", .{ change_id, bookmark }) catch null;
+            }
+            return std.fmt.allocPrint(arena, "@{s}", .{change_id}) catch null;
+        }
+
+        // Git format: [branch]
+        if (status.branch) |branch| {
+            return std.fmt.allocPrint(arena, "[{s}]", .{branch}) catch null;
+        }
+
+        return null;
     }
 };
 
@@ -1726,6 +1836,9 @@ pub fn run(allocator: std.mem.Allocator, start_path: []const u8) !void {
     // Load directory
     app.file_tree = try tree.FileTree.init(allocator, start_path);
     try app.file_tree.?.readDirectory();
+
+    // Refresh VCS status on startup (T020)
+    app.refreshVCSStatus();
 
     // Run event loop
     try app.runEventLoop();
