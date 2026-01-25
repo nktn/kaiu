@@ -1010,9 +1010,13 @@ pub const App = struct {
             // Find the entry with this path and expand it
             for (new_ft.entries.items, 0..) |entry, i| {
                 if (std.mem.eql(u8, entry.path, path)) {
-                    found = true;
-                    if (entry.kind == .directory and !entry.expanded) {
-                        new_ft.toggleExpand(i) catch {};
+                    // Only mark as found if it's still a directory
+                    // (handles case where directory was replaced by file)
+                    if (entry.kind == .directory) {
+                        found = true;
+                        if (!entry.expanded) {
+                            new_ft.toggleExpand(i) catch {};
+                        }
                     }
                     break;
                 }
