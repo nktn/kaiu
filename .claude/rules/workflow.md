@@ -347,6 +347,27 @@ echo "rename me" > test_files/rename_me.txt
 
 ---
 
+## マージ前チェックリスト
+
+PR マージ前に以下を確認する（追加 PR の発生を防ぐため）:
+
+### 必須
+
+- [ ] `tasks.md` の Status を更新（完了率 100%）
+- [ ] `git status` が clean（未コミットの変更なし）
+- [ ] `zig build test` が通る（コード変更がある場合）
+
+### 該当する場合
+
+- [ ] キーバインド追加/変更 → `README.md` を更新
+- [ ] 新機能追加 → `README.md` の機能一覧を更新
+- [ ] AppMode 追加/変更 → `architecture.md` の状態遷移図を更新
+- [ ] Agent/コマンド追加 → `workflow.md` の一覧を更新
+
+**注**: PR テンプレートにもチェックリストがあるので、PR 作成時に自動で確認できる。
+
+---
+
 ## Agent 一覧
 
 | Agent | 役割 | 呼び出しタイミング | Track |
