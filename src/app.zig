@@ -327,8 +327,11 @@ pub const App = struct {
 
         switch (key_char) {
             vaxis.Key.escape => {
-                // Clear search if active (check input_buffer for 0-match case)
-                if (self.input_buffer.items.len > 0) {
+                // Priority: marks first, then search
+                if (self.marked_files.count() > 0) {
+                    self.clearMarkedFiles();
+                    self.status_message = "Marks cleared";
+                } else if (self.input_buffer.items.len > 0 or self.search_matches.items.len > 0) {
                     self.clearSearch();
                 }
             },
@@ -808,6 +811,8 @@ pub const App = struct {
 
     fn enterSearchMode(self: *Self) void {
         self.input_buffer.clearRetainingCapacity();
+        self.search_matches.clearRetainingCapacity();
+        self.current_match = 0;
         self.mode = .search;
     }
 
@@ -1170,7 +1175,7 @@ pub const App = struct {
 
         const total_count = self.clipboard_files.items.len;
         var success_count: usize = 0;
-        for (self.clipboard_files.items) |src_path| {
+        file_loop: for (self.clipboard_files.items) |src_path| {
             const filename = std.fs.path.basename(src_path);
             const dest_path = try std.fs.path.join(self.allocator, &.{ dest_dir, filename });
             defer self.allocator.free(dest_path);
@@ -1189,7 +1194,12 @@ pub const App = struct {
                 final_dest = try std.fs.path.join(self.allocator, &.{ dest_dir, new_name });
                 owned_final = true;
                 suffix += 1;
-                if (suffix > 100) break; // Safety limit
+                if (suffix > 100) {
+                    // Too many conflicts - skip this file to prevent overwriting
+                    // Use labeled continue to exit to outer for loop, not inner while loop
+                    if (owned_final) self.allocator.free(final_dest);
+                    continue :file_loop;
+                }
             } else |_| {
                 // File doesn't exist, we can use this path
             }
@@ -1197,12 +1207,12 @@ pub const App = struct {
 
             // Perform copy or move
             if (self.clipboard_operation == .copy) {
-                self.copyPath(src_path, final_dest) catch continue;
+                self.copyPath(src_path, final_dest) catch continue :file_loop;
             } else {
                 std.fs.cwd().rename(src_path, final_dest) catch {
                     // If rename fails (cross-device), try copy + delete
                     // Only delete source if copy succeeded to prevent data loss
-                    self.copyPath(src_path, final_dest) catch continue;
+                    self.copyPath(src_path, final_dest) catch continue :file_loop;
                     self.deletePathRecursive(src_path) catch {
                         // Copy succeeded but delete failed - this is acceptable
                         // (user will have duplicate, not data loss)
@@ -1818,11 +1828,12 @@ pub const App = struct {
     }
 
     fn renderStatusRow2(self: *Self, win: vaxis.Window, row: u16) !void {
+        // Hint priority matches ESC key behavior: marks first, then search
         const hints: []const u8 = switch (self.mode) {
-            .tree_view => if (self.input_buffer.items.len > 0)
-                "n/N:next/prev  Esc:clear search  /:new search  ?:help  q:quit"
-            else if (self.marked_files.count() > 0)
+            .tree_view => if (self.marked_files.count() > 0)
                 "Space:unmark  y:yank  d:cut  D:delete  Esc:clear marks"
+            else if (self.input_buffer.items.len > 0 or self.search_matches.items.len > 0)
+                "n/N:next/prev  Esc:clear search  /:new search  ?:help  q:quit"
             else
                 "j/k:move  h/l:collapse/expand  Space:mark  /:search  ?:help  q:quit",
             .search => "Enter:confirm  Esc:cancel",
@@ -1923,13 +1934,17 @@ fn isBinaryContent(content: []const u8) bool {
 }
 
 /// Copy a directory recursively with symlink safety
-/// Symlinks are skipped to prevent following links outside the intended tree
+/// Copies directory recursively, preserving symlinks as symlinks (not following them)
 /// Returns error if any file copy fails (to prevent data loss on cut operations)
 fn copyDirRecursive(src_path: []const u8, dest_path: []const u8) !void {
-    // Security: Check if source is a symlink
     var link_buf: [std.fs.max_path_bytes]u8 = undefined;
-    if (std.fs.cwd().readLink(src_path, &link_buf)) |_| {
-        // Skip symlinks during copy
+
+    // Check if source is a symlink - if so, copy the symlink itself
+    if (std.fs.cwd().readLink(src_path, &link_buf)) |link_target| {
+        // Copy symlink: create a new symlink at dest_path pointing to the same target
+        std.posix.symlink(link_target, dest_path) catch |err| {
+            if (err != error.PathAlreadyExists) return err;
+        };
         return;
     } else |_| {}
 
@@ -1947,16 +1962,18 @@ fn copyDirRecursive(src_path: []const u8, dest_path: []const u8) !void {
     var fba = std.heap.FixedBufferAllocator.init(&buf);
     const allocator = fba.allocator();
 
-    // Iterate and copy with symlink checks - propagate errors to prevent partial copy + delete
+    // Iterate and copy - propagate errors to prevent partial copy + delete
     var iter = src_dir.iterate();
     while (try iter.next()) |entry| {
         fba.reset();
         const src_child = try std.fs.path.join(allocator, &.{ src_path, entry.name });
         const dest_child = try std.fs.path.join(allocator, &.{ dest_path, entry.name });
 
-        // Check for symlink before processing
-        if (std.fs.cwd().readLink(src_child, &link_buf)) |_| {
-            // Skip symlinks
+        // Check for symlink - copy as symlink, not following it
+        if (std.fs.cwd().readLink(src_child, &link_buf)) |link_target| {
+            std.posix.symlink(link_target, dest_child) catch |err| {
+                if (err != error.PathAlreadyExists) return err;
+            };
             continue;
         } else |_| {}
 
@@ -2101,6 +2118,47 @@ test "copyDirRecursive handles nested directories" {
     var dest_sub = try dest_dir.openDir("sub", .{});
     defer dest_sub.close();
     _ = try dest_sub.statFile("nested.txt");
+}
+
+test "copyDirRecursive copies symlinks" {
+    const allocator = std.testing.allocator;
+
+    var tmp_dir = std.testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    // Create source directory with a file and a symlink
+    try tmp_dir.dir.makeDir("src_symlink");
+    var src_dir = try tmp_dir.dir.openDir("src_symlink", .{});
+
+    // Create a target file
+    var target_file = try src_dir.createFile("target.txt", .{});
+    try target_file.writeAll("target content");
+    target_file.close();
+
+    // Create a symlink to the target file
+    try std.posix.symlinkat("target.txt", src_dir.fd, "link.txt");
+    src_dir.close();
+
+    const src_path = try tmp_dir.dir.realpathAlloc(allocator, "src_symlink");
+    defer allocator.free(src_path);
+    const base_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+    defer allocator.free(base_path);
+    const dest_path = try std.fs.path.join(allocator, &.{ base_path, "dest_symlink" });
+    defer allocator.free(dest_path);
+
+    try copyDirRecursive(src_path, dest_path);
+
+    // Verify symlink was copied (not the target file)
+    var dest_dir = try std.fs.cwd().openDir(dest_path, .{});
+    defer dest_dir.close();
+
+    // Check that link.txt exists and is a symlink
+    var link_buf: [std.fs.max_path_bytes]u8 = undefined;
+    const link_target = try dest_dir.readLink("link.txt", &link_buf);
+    try std.testing.expectEqualStrings("target.txt", link_target);
+
+    // Verify target file was also copied
+    _ = try dest_dir.statFile("target.txt");
 }
 
 test "encodeBase64 produces valid output" {
