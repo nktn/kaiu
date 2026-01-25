@@ -12,6 +12,10 @@ TUI file explorer with Vim keybindings, written in Zig.
 - File operations (mark, yank/cut/paste, delete, rename, create)
 - Clipboard support (OSC 52)
 - Mouse wheel scrolling
+- **VCS integration** - Git/JJ status colors and branch display
+- **Image preview** - PNG, JPG, GIF, WebP via Kitty Graphics Protocol
+- **Drag & drop** - Drop files from Finder to copy into current directory
+- **File watching** - Auto-refresh on external file changes
 
 ## Requirements
 
@@ -87,6 +91,8 @@ kaiu ~/.config    # Tilde expansion supported
 | `o` | Toggle file preview |
 | `c` | Copy full path to clipboard |
 | `C` | Copy filename to clipboard |
+| `gv` | Cycle VCS mode (Auto → JJ → Git → Auto) |
+| `W` | Toggle file watching |
 | `?` | Show help |
 | `q` | Quit |
 
@@ -98,7 +104,10 @@ src/
 ├── app.zig      # Application state, event loop, key handling
 ├── file_ops.zig # File operations (copy, delete, clipboard)
 ├── tree.zig     # FileTree data structure
-└── ui.zig       # libvaxis rendering, search highlighting
+├── ui.zig       # libvaxis rendering, search highlighting
+├── vcs.zig      # VCS integration (Git/JJ status detection)
+├── image.zig    # Image format detection and dimensions
+└── watcher.zig  # File system watching (mtime polling)
 ```
 
 ## Architecture

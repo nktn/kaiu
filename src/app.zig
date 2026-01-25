@@ -3,6 +3,9 @@ const vaxis = @import("vaxis");
 const tree = @import("tree.zig");
 const ui = @import("ui.zig");
 const file_ops = @import("file_ops.zig");
+const vcs = @import("vcs.zig");
+const image = @import("image.zig");
+const watcher = @import("watcher.zig");
 
 pub const AppMode = enum {
     tree_view,
@@ -12,6 +15,7 @@ pub const AppMode = enum {
     new_file,
     new_dir,
     confirm_delete,
+    confirm_overwrite, // For drop filename conflict (US3)
     help,
 };
 
@@ -19,6 +23,9 @@ pub const Event = union(enum) {
     key_press: vaxis.Key,
     mouse: vaxis.Mouse,
     winsize: vaxis.Winsize,
+    // Bracketed paste events (Phase 3 - US3)
+    paste_start,
+    paste_end,
 };
 
 /// Pending key for multi-key commands (e.g., 'g' for gg)
@@ -63,6 +70,10 @@ pub const App = struct {
     preview_content: ?[]const u8,
     preview_path: ?[]const u8,
     preview_scroll: usize,
+    // Image preview state (Phase 3 - US2)
+    preview_is_image: bool,
+    preview_image: ?vaxis.Image,
+    preview_image_dims: ?image.ImageDimensions,
     should_quit: bool,
     tty: vaxis.Tty,
     vx: vaxis.Vaxis,
@@ -98,6 +109,19 @@ pub const App = struct {
     // Rename state - stores the path being renamed
     rename_target_path: ?[]const u8,
 
+    // VCS State (Phase 3 - US1)
+    vcs_type: vcs.VCSType,
+    vcs_mode: vcs.VCSMode,
+    vcs_status: ?vcs.VCSStatusResult,
+
+    // File Watching State (Phase 3 - US4)
+    file_watcher: ?*watcher.Watcher,
+    watch_debouncer: watcher.Debouncer,
+
+    // Paste/Drop State (Phase 3 - US3)
+    paste_buffer: std.ArrayList(u8),
+    is_pasting: bool,
+
     const Self = @This();
 
     // Use ClipboardOperation from file_ops module
@@ -118,6 +142,9 @@ pub const App = struct {
             .preview_content = null,
             .preview_path = null,
             .preview_scroll = 0,
+            .preview_is_image = false,
+            .preview_image = null,
+            .preview_image_dims = null,
             .should_quit = false,
             .tty = undefined,
             .vx = undefined,
@@ -136,6 +163,13 @@ pub const App = struct {
             .clipboard_files = .empty,
             .clipboard_operation = .none,
             .rename_target_path = null,
+            .vcs_type = .none,
+            .vcs_mode = .auto,
+            .vcs_status = null,
+            .file_watcher = null,
+            .watch_debouncer = watcher.Debouncer.init(300), // 300ms debounce (T055)
+            .paste_buffer = .empty,
+            .is_pasting = false,
         };
 
         self.tty = try vaxis.Tty.init(&self.tty_buf);
@@ -163,6 +197,10 @@ pub const App = struct {
         if (self.preview_path) |path| {
             self.allocator.free(path);
         }
+        // Free image from terminal memory if loaded
+        if (self.preview_image) |img| {
+            self.vx.freeImage(self.tty.writer(), img.id);
+        }
         if (self.search_query) |query| {
             self.allocator.free(query);
         }
@@ -188,6 +226,16 @@ pub const App = struct {
         if (self.rename_target_path) |path| {
             self.allocator.free(path);
         }
+        // Free VCS status
+        if (self.vcs_status) |*status| {
+            status.deinit();
+        }
+        // Free file watcher
+        if (self.file_watcher) |w| {
+            w.deinit();
+        }
+        // Free paste buffer
+        self.paste_buffer.deinit(self.allocator);
         self.render_arena.deinit();
         self.allocator.destroy(self);
     }
@@ -202,6 +250,10 @@ pub const App = struct {
         // Enable mouse mode for wheel events
         try self.vx.setMouseMode(writer, true);
         errdefer self.vx.setMouseMode(writer, false) catch {};
+
+        // Enable bracketed paste for drag & drop detection (Phase 3 - US3)
+        try self.vx.setBracketedPaste(writer, true);
+        errdefer self.vx.setBracketedPaste(writer, false) catch {};
 
         self.vx.queueRefresh();
 
@@ -219,7 +271,14 @@ pub const App = struct {
 
             switch (event) {
                 .key_press => |key| {
-                    try self.handleKey(key);
+                    if (self.is_pasting) {
+                        // Buffer keystrokes during paste (US3)
+                        if (key.codepoint < 128) {
+                            try self.paste_buffer.append(self.allocator, @intCast(key.codepoint));
+                        }
+                    } else {
+                        try self.handleKey(key);
+                    }
                 },
                 .mouse => |mouse| {
                     self.handleMouse(mouse);
@@ -227,7 +286,21 @@ pub const App = struct {
                 .winsize => |ws| {
                     try self.vx.resize(self.allocator, writer, ws);
                 },
+                .paste_start => {
+                    // Start collecting paste content (US3)
+                    self.is_pasting = true;
+                    self.paste_buffer.clearRetainingCapacity();
+                },
+                .paste_end => {
+                    // End of paste - process the content (US3)
+                    self.is_pasting = false;
+                    try self.handlePastedContent(self.paste_buffer.items);
+                    self.paste_buffer.clearRetainingCapacity();
+                },
             }
+
+            // Poll file watcher for changes (T054)
+            try self.pollFileWatcher();
 
             // Render after each event
             try self.render(writer);
@@ -256,6 +329,7 @@ pub const App = struct {
             .new_file => try self.handleNewFileKey(key, key_char),
             .new_dir => try self.handleNewDirKey(key, key_char),
             .confirm_delete => try self.handleConfirmDeleteKey(key_char),
+            .confirm_overwrite => {}, // TODO: Will be implemented in US3 (Drag & Drop)
             .help => self.handleHelpKey(),
         }
     }
@@ -309,6 +383,11 @@ pub const App = struct {
                         self.jumpToTop();
                         return;
                     },
+                    'v' => {
+                        // gv - cycle VCS mode (T018)
+                        self.cycleVCSMode();
+                        return;
+                    },
                     else => {
                         // Invalid sequence, fall through to normal handling
                     },
@@ -354,6 +433,7 @@ pub const App = struct {
             'r' => try self.enterRenameMode(),
             'a' => self.enterNewFileMode(),
             'A' => self.enterNewDirMode(),
+            'W' => self.toggleWatching(), // T056: Toggle file watching
             else => {},
         }
     }
@@ -602,8 +682,21 @@ pub const App = struct {
             self.allocator.free(p);
             self.preview_path = null;
         }
+        // Free previous image if any
+        if (self.preview_image) |img| {
+            self.vx.freeImage(self.tty.writer(), img.id);
+            self.preview_image = null;
+        }
+        self.preview_is_image = false;
+        self.preview_image_dims = null;
 
-        // Read file
+        // Check if file is an image (T030)
+        if (image.isImageFile(path)) {
+            try self.openImagePreview(path);
+            return;
+        }
+
+        // Read file (text preview)
         const file = std.fs.cwd().openFile(path, .{}) catch |err| {
             switch (err) {
                 error.AccessDenied => {
@@ -663,6 +756,101 @@ pub const App = struct {
         self.mode = .preview;
     }
 
+    /// Open image preview (T030, T031, T035, T036)
+    fn openImagePreview(self: *Self, path: []const u8) !void {
+        self.preview_is_image = true;
+        self.preview_path = try self.allocator.dupe(u8, path);
+
+        // Check file size (T036: >10MB is too large)
+        if (image.isImageTooLarge(path)) {
+            self.preview_content = try self.allocator.dupe(u8, "[Image too large to preview]");
+            self.preview_scroll = 0;
+            self.mode = .preview;
+            return;
+        }
+
+        // Get image dimensions (T031)
+        self.preview_image_dims = image.getImageDimensions(path);
+
+        // Try to load image using Kitty Graphics Protocol
+        // Note: Force enable on Ghostty since libvaxis may not detect it correctly
+        const is_ghostty = if (std.posix.getenv("TERM_PROGRAM")) |tp|
+            std.mem.eql(u8, tp, "ghostty")
+        else
+            false;
+
+        // Force kitty_graphics capability for Ghostty
+        if (is_ghostty and !self.vx.caps.kitty_graphics) {
+            self.vx.caps.kitty_graphics = true;
+        }
+
+        var load_error: ?[]const u8 = null;
+        kitty_load: {
+            if (self.vx.caps.kitty_graphics) {
+                // Load with zigimg, transmit with RGBA format
+                // Use heap allocation to avoid stack overflow risk (10MB to match size check)
+                const read_buffer = self.allocator.alloc(u8, 1024 * 1024 * 10) catch {
+                    load_error = "AllocFail";
+                    break :kitty_load;
+                };
+                defer self.allocator.free(read_buffer);
+
+                if (vaxis.zigimg.Image.fromFilePath(self.allocator, path, read_buffer)) |loaded_img_const| {
+                    var loaded_img = loaded_img_const;
+                    defer loaded_img.deinit();
+                    self.preview_image = self.vx.transmitImage(
+                        self.allocator,
+                        self.tty.writer(),
+                        &loaded_img,
+                        .rgba,
+                    ) catch |err| blk: {
+                        load_error = @errorName(err);
+                        break :blk null;
+                    };
+                } else |err| {
+                    load_error = @errorName(err);
+                }
+            }
+        }
+        const try_kitty = self.vx.caps.kitty_graphics;
+
+        // If image load failed or no Kitty support, show fallback (T033)
+        if (self.preview_image == null) {
+            const dims = self.preview_image_dims;
+            const file = std.fs.openFileAbsolute(path, .{}) catch {
+                self.preview_content = try self.allocator.dupe(u8, "[Cannot display image]");
+                self.preview_scroll = 0;
+                self.mode = .preview;
+                return;
+            };
+            defer file.close();
+
+            const stat = file.stat() catch {
+                self.preview_content = try self.allocator.dupe(u8, "[Cannot display image]");
+                self.preview_scroll = 0;
+                self.mode = .preview;
+                return;
+            };
+
+            var buf: [256]u8 = undefined;
+            const filename = std.fs.path.basename(path);
+            const size_kb = stat.size / 1024;
+
+            // Debug info in fallback message
+            const reason: []const u8 = if (load_error) |e| e else if (!try_kitty) "NoKitty" else "NullImg";
+
+            const fallback_msg = if (dims) |d|
+                std.fmt.bufPrint(&buf, "[{s}] {s} ({d}x{d}, {d}KB)", .{ reason, filename, d.width, d.height, size_kb }) catch "[Image]"
+            else
+                std.fmt.bufPrint(&buf, "[{s}] {s} ({d}KB)", .{ reason, filename, size_kb }) catch "[Image]";
+
+            self.preview_content = try self.allocator.dupe(u8, fallback_msg);
+        }
+
+        self.preview_scroll = 0;
+        self.mode = .preview;
+    }
+
     fn closePreview(self: *Self) void {
         if (self.preview_content) |content| {
             self.allocator.free(content);
@@ -672,6 +860,13 @@ pub const App = struct {
             self.allocator.free(path);
             self.preview_path = null;
         }
+        // Reset image preview state
+        if (self.preview_image) |img| {
+            self.vx.freeImage(self.tty.writer(), img.id);
+            self.preview_image = null;
+        }
+        self.preview_is_image = false;
+        self.preview_image_dims = null;
         self.mode = .tree_view;
     }
 
@@ -875,6 +1070,9 @@ pub const App = struct {
             if (self.input_buffer.items.len > 0) {
                 try self.updateSearchResults();
             }
+
+            // Refresh VCS status (T021)
+            self.refreshVCSStatus();
         }
     }
 
@@ -1519,7 +1717,7 @@ pub const App = struct {
         const arena = self.render_arena.allocator();
 
         switch (self.mode) {
-            .tree_view, .search, .rename, .new_file, .new_dir, .confirm_delete => {
+            .tree_view, .search, .rename, .new_file, .new_dir, .confirm_delete, .confirm_overwrite => {
                 // Main tree view (leave room for status bar if height > 2)
                 const tree_height: u16 = if (height > 2) height - 2 else height;
                 var tree_win = win.child(.{ .height = tree_height });
@@ -1532,7 +1730,9 @@ pub const App = struct {
                         self.input_buffer.items
                     else
                         null;
-                    try ui.renderTree(tree_win, ft, self.cursor, self.scroll_offset, self.show_hidden, search_query, self.search_matches.items, &self.marked_files, arena);
+                    // Pass VCS status for file coloring (T022)
+                    const vcs_status_ptr: ?*const vcs.VCSStatusResult = if (self.vcs_status) |*s| s else null;
+                    try ui.renderTree(tree_win, ft, self.cursor, self.scroll_offset, self.show_hidden, search_query, self.search_matches.items, &self.marked_files, vcs_status_ptr, arena);
                 } else {
                     _ = tree_win.printSegment(.{ .text = "No directory loaded" }, .{});
                 }
@@ -1543,7 +1743,10 @@ pub const App = struct {
                 }
             },
             .preview => {
-                if (self.preview_content) |content| {
+                if (self.preview_is_image) {
+                    // Image preview (T032, T033, T034)
+                    try self.renderImagePreview(win, arena);
+                } else if (self.preview_content) |content| {
                     const filename = if (self.preview_path) |p| std.fs.path.basename(p) else "preview";
                     try ui.renderPreview(win, content, filename, self.preview_scroll, self.render_arena.allocator());
                 }
@@ -1638,10 +1841,34 @@ pub const App = struct {
                             .style = .{ .fg = .{ .index = 6 }, .bold = true }, // cyan, bold
                         }, .{ .row_offset = row, .col_offset = 3 });
                     } else {
-                        _ = win.printSegment(.{
+                        const path_result = win.printSegment(.{
                             .text = safe_root,
                             .style = .{ .fg = .{ .index = 6 }, .bold = true }, // cyan, bold
                         }, .{ .row_offset = row, .col_offset = 0 });
+
+                        var col_offset = path_result.col;
+
+                        // Display VCS branch info after path (T023)
+                        if (self.getVCSBranchDisplay(arena)) |branch_display| {
+                            _ = win.printSegment(.{
+                                .text = " ",
+                            }, .{ .row_offset = row, .col_offset = col_offset });
+                            const branch_result = win.printSegment(.{
+                                .text = branch_display,
+                                .style = .{ .fg = .{ .index = 3 } }, // yellow
+                            }, .{ .row_offset = row, .col_offset = col_offset + 1 });
+                            col_offset = branch_result.col;
+                        }
+
+                        // Display [W] when watching is enabled (T057)
+                        if (self.file_watcher) |w| {
+                            if (w.isEnabled()) {
+                                _ = win.printSegment(.{
+                                    .text = " [W]",
+                                    .style = .{ .fg = .{ .index = 2 } }, // green
+                                }, .{ .row_offset = row, .col_offset = col_offset });
+                            }
+                        }
                     }
                 }
 
@@ -1700,6 +1927,7 @@ pub const App = struct {
             .new_file => "Enter:create  Esc:cancel",
             .new_dir => "Enter:create  Esc:cancel",
             .confirm_delete => "y:confirm  n/Esc:cancel",
+            .confirm_overwrite => "o:overwrite  r:rename  Esc:cancel",
             .preview => "j/k:scroll  o:close  q:quit",
             .help => "",
         };
@@ -1710,6 +1938,346 @@ pub const App = struct {
                 .style = .{ .fg = .{ .index = 8 } }, // dim
             }, .{ .row_offset = row, .col_offset = 0 });
         }
+    }
+    // ===== Image Preview Rendering (Phase 3 - US2) =====
+
+    /// Render image preview (T032, T033, T034)
+    fn renderImagePreview(self: *Self, win: vaxis.Window, arena: std.mem.Allocator) !void {
+        const height = win.height;
+        if (height == 0) return;
+
+        const filename = if (self.preview_path) |p| std.fs.path.basename(p) else "image";
+
+        // Build title with dimensions (T034)
+        const title = if (self.preview_image_dims) |dims|
+            try std.fmt.allocPrint(arena, "{s} ({d}x{d})", .{ filename, dims.width, dims.height })
+        else
+            try std.fmt.allocPrint(arena, "{s}", .{filename});
+
+        // Render title bar
+        _ = win.printSegment(.{
+            .text = title,
+            .style = .{ .bold = true, .reverse = true },
+        }, .{ .row_offset = 0, .col_offset = 0 });
+
+        // If we have a loaded image, display it (T032)
+        if (self.preview_image) |img| {
+            // Create a child window for the image (below title bar)
+            const img_win = win.child(.{
+                .y_off = 1,
+                .height = if (height > 1) height - 1 else 1,
+            });
+
+            // Draw the image scaled to fit the window
+            try img.draw(img_win, .{ .scale = .contain });
+        } else if (self.preview_content) |content| {
+            // Fallback: show text message centered (T033)
+            const row: u16 = if (height > 3) height / 2 else 1;
+            const col: u16 = if (content.len < win.width)
+                (win.width - @as(u16, @intCast(content.len))) / 2
+            else
+                0;
+            _ = win.printSegment(.{
+                .text = content,
+                .style = .{ .fg = .{ .index = 8 } }, // dim
+            }, .{ .row_offset = row, .col_offset = col });
+        }
+    }
+
+    // ===== File Watching (Phase 3 - US4) =====
+
+    /// Poll file watcher for changes (T054, T055, T058, T059, T060)
+    fn pollFileWatcher(self: *Self) !void {
+        // Initialize watcher if needed (lazy init when file_tree is loaded)
+        if (self.file_watcher == null and self.file_tree != null) {
+            self.file_watcher = watcher.Watcher.init(self.allocator, self.file_tree.?.root_path) catch null;
+        }
+
+        const w = self.file_watcher orelse return;
+
+        // Poll for changes
+        if (w.poll()) {
+            // Watcher detected a change, use debouncer to coalesce rapid changes (T055)
+            if (self.watch_debouncer.recordEvent()) {
+                // Debounce passed, trigger refresh
+                try self.handleFileSystemChange();
+            }
+        } else if (self.watch_debouncer.checkPending()) {
+            // Handle pending debounced event
+            try self.handleFileSystemChange();
+        }
+    }
+
+    /// Handle file system change detected by watcher
+    fn handleFileSystemChange(self: *Self) !void {
+        // T059: Preserve cursor position on auto-refresh
+        // Save the current path at cursor position
+        var saved_path: ?[]const u8 = null;
+        if (self.file_tree) |ft| {
+            if (ft.visibleToActualIndex(self.cursor, self.show_hidden)) |idx| {
+                saved_path = try self.allocator.dupe(u8, ft.entries.items[idx].path);
+            }
+        }
+        defer if (saved_path) |p| self.allocator.free(p);
+
+        // Reload tree (T060: expanded_paths is preserved by reloadTree -> restoreExpandedState)
+        try self.reloadTree();
+
+        // T059: Restore cursor position if possible
+        if (saved_path) |path| {
+            if (self.file_tree) |ft| {
+                for (ft.entries.items, 0..) |entry, i| {
+                    if (std.mem.eql(u8, entry.path, path)) {
+                        if (ft.actualToVisibleIndex(i, self.show_hidden)) |visible_idx| {
+                            self.cursor = visible_idx;
+                            self.updateScrollOffset();
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        // T058: VCS status is refreshed by reloadTree() which calls refreshVCSStatus()
+        // Show status message for auto-refresh
+        self.status_message = "Auto-refreshed";
+    }
+
+    /// Toggle file watching (T056, T061)
+    fn toggleWatching(self: *Self) void {
+        // Initialize watcher if not exists
+        if (self.file_watcher == null and self.file_tree != null) {
+            self.file_watcher = watcher.Watcher.init(self.allocator, self.file_tree.?.root_path) catch {
+                self.status_message = "Failed to enable watching";
+                return;
+            };
+        }
+
+        const w = self.file_watcher orelse {
+            self.status_message = "Watching unavailable";
+            return;
+        };
+
+        const new_state = !w.isEnabled();
+        w.setEnabled(new_state);
+        self.watch_debouncer.reset();
+
+        // T061: Status message for watching toggle
+        self.status_message = if (new_state) "Watching enabled" else "Watching disabled";
+    }
+
+    // ===== Drag & Drop via Bracketed Paste (Phase 3 - US3) =====
+
+    /// Handle pasted content - detect file paths and treat as drops (T038, T042)
+    fn handlePastedContent(self: *Self, content: []const u8) !void {
+        if (content.len == 0) return;
+
+        // Parse paths (may be multiple, separated by newlines or spaces)
+        var paths: std.ArrayList([]const u8) = .empty;
+        defer paths.deinit(self.allocator);
+
+        // Try to extract file paths from the pasted content
+        var iter = std.mem.tokenizeAny(u8, content, "\n\r");
+        while (iter.next()) |line| {
+            const trimmed = std.mem.trim(u8, line, " \t");
+            if (trimmed.len == 0) continue;
+
+            // Check if this looks like a file path
+            if (self.isValidFilePath(trimmed)) {
+                try paths.append(self.allocator, trimmed);
+            }
+        }
+
+        if (paths.items.len == 0) {
+            // No valid file paths found - this is just regular paste, ignore
+            return;
+        }
+
+        // Handle as file drop
+        try self.handleFileDrop(paths.items);
+    }
+
+    /// Check if a string looks like a valid file path that exists (T039)
+    fn isValidFilePath(self: *Self, path: []const u8) bool {
+        _ = self;
+        // Must start with / (absolute path) or ~ (home-relative)
+        if (path.len == 0) return false;
+        if (path[0] != '/' and path[0] != '~') return false;
+
+        // Expand ~ to home directory
+        var expanded_buf: [4096]u8 = undefined;
+        const expanded = if (path[0] == '~') blk: {
+            const home = std.posix.getenv("HOME") orelse return false;
+            if (path.len == 1) {
+                break :blk home;
+            }
+            const rest = path[1..];
+            const result = std.fmt.bufPrint(&expanded_buf, "{s}{s}", .{ home, rest }) catch return false;
+            break :blk result;
+        } else path;
+
+        // Check if file/directory exists
+        std.fs.cwd().access(expanded, .{}) catch return false;
+        return true;
+    }
+
+    /// Handle file drop - copy files to current directory (T040, T041, T042, T046, T047)
+    fn handleFileDrop(self: *Self, paths: []const []const u8) !void {
+        const ft = self.file_tree orelse return;
+        const dest_dir = self.getCurrentDirectory(ft);
+
+        var success_count: usize = 0;
+        const total_count: usize = paths.len;
+
+        for (paths) |src_path| {
+            // Expand ~ if needed
+            var expanded_buf: [4096]u8 = undefined;
+            const expanded = if (src_path.len > 0 and src_path[0] == '~') blk: {
+                const home = std.posix.getenv("HOME") orelse continue;
+                if (src_path.len == 1) {
+                    break :blk home;
+                }
+                const rest = src_path[1..];
+                break :blk std.fmt.bufPrint(&expanded_buf, "{s}{s}", .{ home, rest }) catch continue;
+            } else src_path;
+
+            const filename = std.fs.path.basename(expanded);
+
+            // Generate destination path with conflict resolution (T043, T044a)
+            const final_dest = try self.resolveDropConflict(dest_dir, filename);
+            defer self.allocator.free(final_dest);
+
+            // Copy the file/directory (T040, T041)
+            self.copyPath(expanded, final_dest) catch continue;
+            success_count += 1;
+        }
+
+        if (success_count > 0) {
+            try self.reloadTree();
+            // Set status message (T047)
+            if (success_count == 1) {
+                self.status_message = "Dropped 1 file";
+            } else {
+                self.status_message = std.fmt.bufPrint(&self.status_message_buf, "Dropped {d} files", .{success_count}) catch "Dropped files";
+            }
+            if (success_count < total_count) {
+                self.status_message = std.fmt.bufPrint(&self.status_message_buf, "Dropped {d}/{d} files", .{ success_count, total_count }) catch "Dropped (some failed)";
+            }
+        } else if (total_count > 0) {
+            self.status_message = "Drop failed";
+        }
+    }
+
+    /// Resolve filename conflict for dropped file - returns "name (2).ext" style (T043, T044a)
+    fn resolveDropConflict(self: *Self, dest_dir: []const u8, filename: []const u8) ![]const u8 {
+        const initial_path = try std.fs.path.join(self.allocator, &.{ dest_dir, filename });
+
+        // Check if file exists
+        if (std.fs.cwd().access(initial_path, .{})) |_| {
+            // File exists, need to find alternative name
+            self.allocator.free(initial_path);
+
+            const ext = std.fs.path.extension(filename);
+            const stem = filename[0 .. filename.len - ext.len];
+
+            var suffix: usize = 2;
+            while (suffix <= 100) {
+                // Format: "name (2).ext" per spec T044a
+                const new_name = try std.fmt.allocPrint(self.allocator, "{s} ({d}){s}", .{ stem, suffix, ext });
+                defer self.allocator.free(new_name);
+
+                const new_path = try std.fs.path.join(self.allocator, &.{ dest_dir, new_name });
+
+                if (std.fs.cwd().access(new_path, .{})) |_| {
+                    // Still exists, try next number
+                    self.allocator.free(new_path);
+                    suffix += 1;
+                } else |_| {
+                    // Doesn't exist, use this path
+                    return new_path;
+                }
+            }
+
+            // Too many conflicts
+            return error.TooManyConflicts;
+        } else |_| {
+            // Doesn't exist, use initial path
+            return initial_path;
+        }
+    }
+
+    // ===== VCS Integration (Phase 3 - US1) =====
+
+    /// Refresh VCS status for the current directory (T019)
+    fn refreshVCSStatus(self: *Self) void {
+        const ft = self.file_tree orelse return;
+
+        // Free previous status
+        if (self.vcs_status) |*status| {
+            status.deinit();
+            self.vcs_status = null;
+        }
+
+        // Detect VCS type
+        self.vcs_type = vcs.detectVCS(ft.root_path);
+
+        // Get status based on mode
+        self.vcs_status = vcs.getVCSStatus(
+            self.allocator,
+            ft.root_path,
+            self.vcs_type,
+            self.vcs_mode,
+        ) catch null;
+    }
+
+    /// Cycle VCS mode and refresh status (T018, T025)
+    fn cycleVCSMode(self: *Self) void {
+        self.vcs_mode = vcs.cycleVCSMode(self.vcs_mode);
+        self.refreshVCSStatus();
+
+        // Show status message
+        const mode_name = vcs.vcsModeName(self.vcs_mode);
+        const msg = std.fmt.bufPrint(&self.status_message_buf, "VCS: {s}", .{mode_name}) catch "VCS mode changed";
+        self.status_message = msg;
+    }
+
+    /// Get VCS status for a file path (for UI rendering)
+    pub fn getFileVCSStatus(self: *const Self, path: []const u8) ?vcs.VCSFileStatus {
+        const status = self.vcs_status orelse return null;
+        const ft = self.file_tree orelse return null;
+
+        // Convert absolute path to relative path from repo root
+        if (std.mem.startsWith(u8, path, ft.root_path)) {
+            var relative = path[ft.root_path.len..];
+            // Remove leading slash
+            if (relative.len > 0 and relative[0] == '/') {
+                relative = relative[1..];
+            }
+            return status.get(relative);
+        }
+
+        return null;
+    }
+
+    /// Get branch/change info for status bar display
+    pub fn getVCSBranchDisplay(self: *const Self, arena: std.mem.Allocator) ?[]const u8 {
+        const status = self.vcs_status orelse return null;
+
+        // JJ format: @changeid (bookmark)
+        if (self.vcs_type == .jj or (self.vcs_type != .none and self.vcs_mode == .jj)) {
+            const change_id = status.branch orelse return null;
+            if (status.bookmark) |bookmark| {
+                return std.fmt.allocPrint(arena, "@{s} ({s})", .{ change_id, bookmark }) catch null;
+            }
+            return std.fmt.allocPrint(arena, "@{s}", .{change_id}) catch null;
+        }
+
+        // Git format: [branch]
+        if (status.branch) |branch| {
+            return std.fmt.allocPrint(arena, "[{s}]", .{branch}) catch null;
+        }
+
+        return null;
     }
 };
 
@@ -1726,6 +2294,9 @@ pub fn run(allocator: std.mem.Allocator, start_path: []const u8) !void {
     // Load directory
     app.file_tree = try tree.FileTree.init(allocator, start_path);
     try app.file_tree.?.readDirectory();
+
+    // Refresh VCS status on startup (T020)
+    app.refreshVCSStatus();
 
     // Run event loop
     try app.runEventLoop();
