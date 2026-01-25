@@ -182,7 +182,7 @@ test "Watcher init and deinit" {
     const watcher = try Watcher.init(allocator, path);
     defer watcher.deinit();
 
-    try std.testing.expect(!watcher.enabled);
+    try std.testing.expect(watcher.enabled);
     try std.testing.expectEqualStrings(path, watcher.path);
 }
 
@@ -198,11 +198,11 @@ test "Watcher enable/disable" {
     const watcher = try Watcher.init(allocator, path);
     defer watcher.deinit();
 
-    try std.testing.expect(!watcher.isEnabled());
-
-    watcher.setEnabled(true);
     try std.testing.expect(watcher.isEnabled());
 
     watcher.setEnabled(false);
     try std.testing.expect(!watcher.isEnabled());
+
+    watcher.setEnabled(true);
+    try std.testing.expect(watcher.isEnabled());
 }

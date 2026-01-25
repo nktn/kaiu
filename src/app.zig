@@ -785,23 +785,31 @@ pub const App = struct {
         }
 
         var load_error: ?[]const u8 = null;
-        if (self.vx.caps.kitty_graphics) {
-            // Load with zigimg, transmit with RGBA format
-            var read_buffer: [1024 * 1024 * 5]u8 = undefined; // 5MB buffer
-            if (vaxis.zigimg.Image.fromFilePath(self.allocator, path, &read_buffer)) |loaded_img_const| {
-                var loaded_img = loaded_img_const;
-                defer loaded_img.deinit();
-                self.preview_image = self.vx.transmitImage(
-                    self.allocator,
-                    self.tty.writer(),
-                    &loaded_img,
-                    .rgba,
-                ) catch |err| blk: {
-                    load_error = @errorName(err);
-                    break :blk null;
+        kitty_load: {
+            if (self.vx.caps.kitty_graphics) {
+                // Load with zigimg, transmit with RGBA format
+                // Use heap allocation to avoid stack overflow risk (10MB to match size check)
+                const read_buffer = self.allocator.alloc(u8, 1024 * 1024 * 10) catch {
+                    load_error = "AllocFail";
+                    break :kitty_load;
                 };
-            } else |err| {
-                load_error = @errorName(err);
+                defer self.allocator.free(read_buffer);
+
+                if (vaxis.zigimg.Image.fromFilePath(self.allocator, path, read_buffer)) |loaded_img_const| {
+                    var loaded_img = loaded_img_const;
+                    defer loaded_img.deinit();
+                    self.preview_image = self.vx.transmitImage(
+                        self.allocator,
+                        self.tty.writer(),
+                        &loaded_img,
+                        .rgba,
+                    ) catch |err| blk: {
+                        load_error = @errorName(err);
+                        break :blk null;
+                    };
+                } else |err| {
+                    load_error = @errorName(err);
+                }
             }
         }
         const try_kitty = self.vx.caps.kitty_graphics;
