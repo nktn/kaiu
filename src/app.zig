@@ -23,6 +23,9 @@ pub const Event = union(enum) {
     key_press: vaxis.Key,
     mouse: vaxis.Mouse,
     winsize: vaxis.Winsize,
+    // Bracketed paste events (Phase 3 - US3)
+    paste_start,
+    paste_end,
 };
 
 /// Pending key for multi-key commands (e.g., 'g' for gg)
@@ -115,6 +118,10 @@ pub const App = struct {
     file_watcher: ?*watcher.Watcher,
     watch_debouncer: watcher.Debouncer,
 
+    // Paste/Drop State (Phase 3 - US3)
+    paste_buffer: std.ArrayList(u8),
+    is_pasting: bool,
+
     const Self = @This();
 
     // Use ClipboardOperation from file_ops module
@@ -161,6 +168,8 @@ pub const App = struct {
             .vcs_status = null,
             .file_watcher = null,
             .watch_debouncer = watcher.Debouncer.init(300), // 300ms debounce (T055)
+            .paste_buffer = .empty,
+            .is_pasting = false,
         };
 
         self.tty = try vaxis.Tty.init(&self.tty_buf);
@@ -225,6 +234,8 @@ pub const App = struct {
         if (self.file_watcher) |w| {
             w.deinit();
         }
+        // Free paste buffer
+        self.paste_buffer.deinit(self.allocator);
         self.render_arena.deinit();
         self.allocator.destroy(self);
     }
@@ -239,6 +250,10 @@ pub const App = struct {
         // Enable mouse mode for wheel events
         try self.vx.setMouseMode(writer, true);
         errdefer self.vx.setMouseMode(writer, false) catch {};
+
+        // Enable bracketed paste for drag & drop detection (Phase 3 - US3)
+        try self.vx.setBracketedPaste(writer, true);
+        errdefer self.vx.setBracketedPaste(writer, false) catch {};
 
         self.vx.queueRefresh();
 
@@ -256,13 +271,31 @@ pub const App = struct {
 
             switch (event) {
                 .key_press => |key| {
-                    try self.handleKey(key);
+                    if (self.is_pasting) {
+                        // Buffer keystrokes during paste (US3)
+                        if (key.codepoint < 128) {
+                            try self.paste_buffer.append(self.allocator, @intCast(key.codepoint));
+                        }
+                    } else {
+                        try self.handleKey(key);
+                    }
                 },
                 .mouse => |mouse| {
                     self.handleMouse(mouse);
                 },
                 .winsize => |ws| {
                     try self.vx.resize(self.allocator, writer, ws);
+                },
+                .paste_start => {
+                    // Start collecting paste content (US3)
+                    self.is_pasting = true;
+                    self.paste_buffer.clearRetainingCapacity();
+                },
+                .paste_end => {
+                    // End of paste - process the content (US3)
+                    self.is_pasting = false;
+                    try self.handlePastedContent(self.paste_buffer.items);
+                    self.paste_buffer.clearRetainingCapacity();
                 },
             }
 
@@ -1994,6 +2027,149 @@ pub const App = struct {
 
         // T061: Status message for watching toggle
         self.status_message = if (new_state) "Watching enabled" else "Watching disabled";
+    }
+
+    // ===== Drag & Drop via Bracketed Paste (Phase 3 - US3) =====
+
+    /// Handle pasted content - detect file paths and treat as drops (T038, T042)
+    fn handlePastedContent(self: *Self, content: []const u8) !void {
+        if (content.len == 0) return;
+
+        // Parse paths (may be multiple, separated by newlines or spaces)
+        var paths = std.ArrayList([]const u8).init(self.allocator);
+        defer paths.deinit();
+
+        // Try to extract file paths from the pasted content
+        var iter = std.mem.tokenizeAny(u8, content, "\n\r");
+        while (iter.next()) |line| {
+            const trimmed = std.mem.trim(u8, line, " \t");
+            if (trimmed.len == 0) continue;
+
+            // Check if this looks like a file path
+            if (self.isValidFilePath(trimmed)) {
+                try paths.append(trimmed);
+            }
+        }
+
+        if (paths.items.len == 0) {
+            // No valid file paths found - this is just regular paste, ignore
+            return;
+        }
+
+        // Handle as file drop
+        try self.handleFileDrop(paths.items);
+    }
+
+    /// Check if a string looks like a valid file path that exists (T039)
+    fn isValidFilePath(self: *Self, path: []const u8) bool {
+        _ = self;
+        // Must start with / (absolute path) or ~ (home-relative)
+        if (path.len == 0) return false;
+        if (path[0] != '/' and path[0] != '~') return false;
+
+        // Expand ~ to home directory
+        var expanded_buf: [4096]u8 = undefined;
+        const expanded = if (path[0] == '~') blk: {
+            const home = std.posix.getenv("HOME") orelse return false;
+            if (path.len == 1) {
+                break :blk home;
+            }
+            const rest = path[1..];
+            const result = std.fmt.bufPrint(&expanded_buf, "{s}{s}", .{ home, rest }) catch return false;
+            break :blk result;
+        } else path;
+
+        // Check if file/directory exists
+        std.fs.cwd().access(expanded, .{}) catch return false;
+        return true;
+    }
+
+    /// Handle file drop - copy files to current directory (T040, T041, T042, T046, T047)
+    fn handleFileDrop(self: *Self, paths: []const []const u8) !void {
+        const ft = self.file_tree orelse return;
+        const dest_dir = self.getCurrentDirectory(ft);
+
+        var success_count: usize = 0;
+        const total_count: usize = paths.len;
+
+        for (paths) |src_path| {
+            // Expand ~ if needed
+            var expanded_buf: [4096]u8 = undefined;
+            const expanded = if (src_path.len > 0 and src_path[0] == '~') blk: {
+                const home = std.posix.getenv("HOME") orelse continue;
+                if (src_path.len == 1) {
+                    break :blk home;
+                }
+                const rest = src_path[1..];
+                break :blk std.fmt.bufPrint(&expanded_buf, "{s}{s}", .{ home, rest }) catch continue;
+            } else src_path;
+
+            const filename = std.fs.path.basename(expanded);
+
+            // Generate destination path with conflict resolution (T043, T044a)
+            const final_dest = try self.resolveDropConflict(dest_dir, filename);
+            defer self.allocator.free(final_dest);
+
+            // Copy the file/directory (T040, T041)
+            self.copyPath(expanded, final_dest) catch |err| {
+                _ = err;
+                continue;
+            };
+            success_count += 1;
+        }
+
+        if (success_count > 0) {
+            try self.reloadTree();
+            // Set status message (T047)
+            if (success_count == 1) {
+                self.status_message = "Dropped 1 file";
+            } else {
+                self.status_message = std.fmt.bufPrint(&self.status_message_buf, "Dropped {d} files", .{success_count}) catch "Dropped files";
+            }
+            if (success_count < total_count) {
+                self.status_message = std.fmt.bufPrint(&self.status_message_buf, "Dropped {d}/{d} files", .{ success_count, total_count }) catch "Dropped (some failed)";
+            }
+        } else if (total_count > 0) {
+            self.status_message = "Drop failed";
+        }
+    }
+
+    /// Resolve filename conflict for dropped file - returns "name (2).ext" style (T043, T044a)
+    fn resolveDropConflict(self: *Self, dest_dir: []const u8, filename: []const u8) ![]const u8 {
+        const initial_path = try std.fs.path.join(self.allocator, &.{ dest_dir, filename });
+
+        // Check if file exists
+        if (std.fs.cwd().access(initial_path, .{})) |_| {
+            // File exists, need to find alternative name
+            self.allocator.free(initial_path);
+
+            const ext = std.fs.path.extension(filename);
+            const stem = filename[0 .. filename.len - ext.len];
+
+            var suffix: usize = 2;
+            while (suffix <= 100) {
+                // Format: "name (2).ext" per spec T044a
+                const new_name = try std.fmt.allocPrint(self.allocator, "{s} ({d}){s}", .{ stem, suffix, ext });
+                defer self.allocator.free(new_name);
+
+                const new_path = try std.fs.path.join(self.allocator, &.{ dest_dir, new_name });
+
+                if (std.fs.cwd().access(new_path, .{})) |_| {
+                    // Still exists, try next number
+                    self.allocator.free(new_path);
+                    suffix += 1;
+                } else |_| {
+                    // Doesn't exist, use this path
+                    return new_path;
+                }
+            }
+
+            // Too many conflicts
+            return error.TooManyConflicts;
+        } else |_| {
+            // Doesn't exist, use initial path
+            return initial_path;
+        }
     }
 
     // ===== VCS Integration (Phase 3 - US1) =====

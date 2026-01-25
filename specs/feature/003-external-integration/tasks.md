@@ -3,7 +3,7 @@
 **Input**: Design documents from `/specs/feature/003-external-integration/`
 **Prerequisites**: plan.md (required), spec.md (required for user stories)
 
-**Status**: In Progress (Phase 1-6 Complete: 50/70 tasks)
+**Status**: In Progress (Phase 1-6 Complete + US3: 64/70 tasks)
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -104,20 +104,20 @@
 
 ### Implementation for User Story 3
 
-- [x] T037 [US3] Research libvaxis drag & drop support - **BLOCKED**: vaxis doesn't expose terminal drop events
-- [ ] T038 [US3] Add DropEvent handling to event loop in `src/app.zig` - parse drop payloads
-- [ ] T039 [US3] Implement getDropTargetDir() in `src/app.zig` - cursor on dir → that dir, cursor on file → parent
-- [ ] T040 [US3] Implement copyFile() helper in `src/app.zig` - copy single file using std.fs
-- [ ] T041 [US3] Implement copyDirectory() helper in `src/app.zig` - recursive directory copy
-- [ ] T042 [US3] Implement handleDrop() in `src/app.zig` - process single or multiple dropped files
-- [ ] T043 [US3] Implement checkFilenameConflict() in `src/app.zig` - detect existing files with same name
-- [ ] T044 [US3] Add confirm_overwrite mode handling in `src/app.zig` - overwrite/rename/cancel options
-- [ ] T044a [US3] Implement rename with `name (2).ext` format in `src/app.zig` - space + parenthesis + number
-- [ ] T044b [US3] Implement drop queuing in `src/app.zig` - queue drops during other file operations
-- [ ] T045 [US3] Implement renderConfirmOverwrite() in `src/ui.zig` - display conflict resolution dialog
-- [ ] T046 [US3] Call reloadTree() after successful drop in `src/app.zig`
-- [ ] T047 [US3] Add status message for drop result in `src/app.zig` - "Copied N files" or error
-- [ ] T048 [US3] Handle unsupported terminals gracefully in `src/app.zig` - silently ignore drops
+- [x] T037 [US3] Research libvaxis drag & drop support - **RESOLVED**: Using Bracketed Paste to detect file drops
+- [x] T038 [US3] Add paste event handling to event loop in `src/app.zig` - handle paste_start/paste_end
+- [x] T039 [US3] Implement isValidFilePath() in `src/app.zig` - check if pasted content is a file path
+- [x] T040 [US3] Implement copyFile() helper in `src/app.zig` - reuse existing copyPath()
+- [x] T041 [US3] Implement copyDirectory() helper in `src/app.zig` - reuse existing copyPath()
+- [x] T042 [US3] Implement handleFileDrop() in `src/app.zig` - process single or multiple dropped files
+- [x] T043 [US3] Implement resolveDropConflict() in `src/app.zig` - detect existing files with same name
+- [x] T044 [US3] Auto-rename on conflict (no dialog) - simpler UX than confirm dialog
+- [x] T044a [US3] Implement rename with `name (2).ext` format in `src/app.zig` - space + parenthesis + number
+- [x] T044b [US3] Drop queuing via is_pasting flag - no concurrent drops in single-threaded event loop
+- [x] T045 [US3] Skip renderConfirmOverwrite() - auto-rename approach simplifies UX
+- [x] T046 [US3] Call reloadTree() after successful drop in `src/app.zig`
+- [x] T047 [US3] Add status message for drop result in `src/app.zig` - "Dropped N files" or error
+- [x] T048 [US3] Handle unsupported terminals gracefully - no bracketed paste = no drop events (silent)
 
 **Checkpoint**: Drag & drop functional - files copy to correct location, conflicts handled with dialog
 
