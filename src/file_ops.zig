@@ -1,19 +1,13 @@
 const std = @import("std");
-const vaxis = @import("vaxis");
-const tree = @import("tree.zig");
-const ui = @import("ui.zig");
 
 /// File operations module - extracted from app.zig
-/// Functions receive App pointer as parameter to avoid circular imports
+/// Provides pure file system operations without App dependencies
 
 pub const ClipboardOperation = enum {
     none,
     copy,
     cut,
 };
-
-// Forward declaration: App is passed as anytype to avoid circular import
-// Each function takes a pointer to the app struct
 
 // ===== Helper Functions =====
 
