@@ -48,7 +48,6 @@ kaiu ~/.config    # Tilde expansion supported
 | `l` / `→` / `Enter` | Expand directory / open preview |
 | `gg` | Jump to top |
 | `G` | Jump to bottom |
-| `gn` | Go to path (Enter: confirm, Esc: cancel) |
 
 ### Tree Operations
 

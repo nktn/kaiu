@@ -25,7 +25,6 @@ stateDiagram-v2
     TreeView --> TreeView: p (paste)
     TreeView --> Preview: o/l/Enter on file
     TreeView --> Search: /
-    TreeView --> PathInput: gn
     TreeView --> Rename: r
     TreeView --> NewFile: a
     TreeView --> NewDir: A
@@ -35,9 +34,6 @@ stateDiagram-v2
 
     Search --> TreeView: Enter (confirm)
     Search --> TreeView: Esc (cancel)
-
-    PathInput --> TreeView: Enter (navigate)
-    PathInput --> TreeView: Esc (cancel)
 
     Rename --> TreeView: Enter (confirm rename)
     Rename --> TreeView: Esc (cancel)
@@ -76,7 +72,6 @@ stateDiagram-v2
 | TreeView | `/` | Search | enterSearchMode() |
 | TreeView | `n`/`N` | TreeView | nextSearchMatch()/prevSearchMatch() |
 | TreeView | `Esc` | TreeView | clearSearch() |
-| TreeView | `gn` | PathInput | enterPathInputMode() |
 | TreeView | `c`/`C` | TreeView | copyPathToClipboard() |
 | TreeView | `Space` | TreeView | toggleMark() |
 | TreeView | `y` | TreeView | yankFiles() |
@@ -91,8 +86,6 @@ stateDiagram-v2
 | Search | `Enter` | TreeView | confirm search |
 | Search | `Esc` | TreeView | clearSearch() |
 | Search | char | Search | updateSearchResults() |
-| PathInput | `Enter` | TreeView | navigateToInputPath() |
-| PathInput | `Esc` | TreeView | cancel |
 | Rename | `Enter` | TreeView | performRename() |
 | Rename | `Esc` | TreeView | cancel |
 | NewFile | `Enter` | TreeView | createFile() |
@@ -113,7 +106,6 @@ pub const AppMode = enum {
     tree_view,       // Main mode - file tree navigation
     preview,         // Full-screen file preview
     search,          // Incremental search mode
-    path_input,      // Go to path mode
     rename,          // Rename file/directory
     new_file,        // Create new file
     new_dir,         // Create new directory
@@ -356,7 +348,7 @@ pub const App = struct {
 **Context**: rename, new file, new dir, confirm delete で再利用可能な入力が必要
 **Decision**: AppMode を拡張して新しい入力モードを追加、既存の input_buffer を共有
 **Rationale**:
-- 既に search と path_input で input_buffer を使用するパターンがある
+- 既に search で input_buffer を使用するパターンがある
 - 新しいモード: `rename`, `new_file`, `new_dir`, `confirm_delete`
 - モードごとにプロンプトと Enter 時の動作を切り替え
 - 別モジュール作成よりも凝集度を優先

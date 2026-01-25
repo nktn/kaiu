@@ -340,7 +340,6 @@ pub fn renderHelp(win: vaxis.Window) !void {
         .{ "gg/G", "Jump top/bottom" },
         .{ "H/L", "Collapse/Expand all" },
         .{ "Tab", "Toggle expand" },
-        .{ "gn", "Go to path" },
     };
 
     for (nav_keys) |kv| {

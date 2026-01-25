@@ -7,7 +7,6 @@ pub const AppMode = enum {
     tree_view,
     preview,
     search,
-    path_input,
     rename,
     new_file,
     new_dir,
@@ -255,7 +254,6 @@ pub const App = struct {
             .tree_view => try self.handleTreeViewKey(key_char),
             .preview => self.handlePreviewKey(key_char),
             .search => try self.handleSearchKey(key, key_char),
-            .path_input => try self.handlePathInputKey(key, key_char),
             .rename => try self.handleRenameKey(key, key_char),
             .new_file => try self.handleNewFileKey(key, key_char),
             .new_dir => try self.handleNewDirKey(key, key_char),
@@ -283,7 +281,7 @@ pub const App = struct {
         switch (mouse.button) {
             .wheel_up => {
                 switch (self.mode) {
-                    .tree_view, .search, .path_input => self.moveCursor(-1),
+                    .tree_view, .search => self.moveCursor(-1),
                     .preview => if (self.preview_scroll > 0) {
                         self.preview_scroll -= 1;
                     },
@@ -292,7 +290,7 @@ pub const App = struct {
             },
             .wheel_down => {
                 switch (self.mode) {
-                    .tree_view, .search, .path_input => self.moveCursor(1),
+                    .tree_view, .search => self.moveCursor(1),
                     .preview => self.scrollPreviewDown(self.vx.window().height),
                     else => {},
                 }
@@ -311,11 +309,6 @@ pub const App = struct {
                     'g' => {
                         // gg - jump to top
                         self.jumpToTop();
-                        return;
-                    },
-                    'n' => {
-                        // gn - enter path input mode
-                        self.enterPathInputMode();
                         return;
                     },
                     else => {
@@ -402,33 +395,6 @@ pub const App = struct {
                 if (key_char >= 0x20 and key_char < 0x7F) {
                     try self.input_buffer.append(self.allocator, @intCast(key_char));
                     try self.updateSearchResults();
-                }
-            },
-        }
-        _ = key;
-    }
-
-    fn handlePathInputKey(self: *Self, key: vaxis.Key, key_char: u21) !void {
-        switch (key_char) {
-            vaxis.Key.escape => {
-                // Cancel and return to normal mode
-                self.input_buffer.clearRetainingCapacity();
-                self.mode = .tree_view;
-            },
-            vaxis.Key.enter => {
-                // Validate and navigate to path
-                try self.navigateToInputPath();
-            },
-            vaxis.Key.backspace => {
-                // Remove last character
-                if (self.input_buffer.items.len > 0) {
-                    _ = self.input_buffer.pop();
-                }
-            },
-            else => {
-                // Add printable character to input buffer
-                if (key_char >= 0x20 and key_char < 0x7F) {
-                    try self.input_buffer.append(self.allocator, @intCast(key_char));
                 }
             },
         }
@@ -881,76 +847,6 @@ pub const App = struct {
         if (ft.actualToVisibleIndex(actual_index, self.show_hidden)) |visible_index| {
             self.cursor = visible_index;
         }
-    }
-
-    // ===== Path Navigation (Task 2.4) =====
-
-    fn enterPathInputMode(self: *Self) void {
-        self.input_buffer.clearRetainingCapacity();
-        self.mode = .path_input;
-    }
-
-    fn navigateToInputPath(self: *Self) !void {
-        if (self.input_buffer.items.len == 0) {
-            self.mode = .tree_view;
-            return;
-        }
-
-        // Expand ~ to home directory
-        var path_buf: [std.fs.max_path_bytes]u8 = undefined;
-        const input_path = self.input_buffer.items;
-        var resolved_path: []const u8 = undefined;
-
-        if (input_path.len > 0 and input_path[0] == '~') {
-            const home = std.posix.getenv("HOME") orelse {
-                self.status_message = "Cannot resolve home directory";
-                return;
-            };
-            if (input_path.len == 1) {
-                resolved_path = home;
-            } else {
-                const written = std.fmt.bufPrint(&path_buf, "{s}{s}", .{ home, input_path[1..] }) catch {
-                    self.status_message = "Path too long";
-                    return;
-                };
-                resolved_path = written;
-            }
-        } else {
-            resolved_path = input_path;
-        }
-
-        // Check if path exists
-        const stat = std.fs.cwd().statFile(resolved_path) catch {
-            self.status_message = "Invalid path";
-            return;
-        };
-
-        // Determine target directory
-        var target_dir: []const u8 = undefined;
-        if (stat.kind == .directory) {
-            target_dir = resolved_path;
-        } else {
-            // File path - get parent directory
-            target_dir = std.fs.path.dirname(resolved_path) orelse ".";
-        }
-
-        // Reload tree at new path
-        if (self.file_tree) |ft| {
-            ft.deinit();
-        }
-        self.file_tree = try tree.FileTree.init(self.allocator, target_dir);
-        try self.file_tree.?.readDirectory();
-
-        // Clear marked files - paths are now invalid after tree change
-        self.clearMarkedFiles();
-
-        // Clear expanded paths - old paths are invalid after root change
-        self.clearExpandedPaths();
-
-        self.cursor = 0;
-        self.scroll_offset = 0;
-        self.input_buffer.clearRetainingCapacity();
-        self.mode = .tree_view;
     }
 
     // ===== Reload Tree (Task 2.10) =====
@@ -1651,7 +1547,7 @@ pub const App = struct {
         const arena = self.render_arena.allocator();
 
         switch (self.mode) {
-            .tree_view, .search, .path_input, .rename, .new_file, .new_dir, .confirm_delete => {
+            .tree_view, .search, .rename, .new_file, .new_dir, .confirm_delete => {
                 // Main tree view (leave room for status bar if height > 2)
                 const tree_height: u16 = if (height > 2) height - 2 else height;
                 var tree_win = win.child(.{ .height = tree_height });
@@ -1705,15 +1601,6 @@ pub const App = struct {
                 const match_count = self.search_matches.items.len;
                 const safe_query = try ui.sanitizeForDisplay(arena, self.input_buffer.items);
                 const status = try std.fmt.allocPrint(arena, "/{s}|  [{d} matches]", .{ safe_query, match_count });
-                _ = win.printSegment(.{
-                    .text = status,
-                    .style = .{ .reverse = true },
-                }, .{ .row_offset = row, .col_offset = 0 });
-            },
-            .path_input => {
-                // Path input mode: "Go to: path"
-                const safe_path = try ui.sanitizeForDisplay(arena, self.input_buffer.items);
-                const status = try std.fmt.allocPrint(arena, "Go to: {s}|", .{safe_path});
                 _ = win.printSegment(.{
                     .text = status,
                     .style = .{ .reverse = true },
@@ -1837,7 +1724,6 @@ pub const App = struct {
             else
                 "j/k:move  h/l:collapse/expand  Space:mark  /:search  ?:help  q:quit",
             .search => "Enter:confirm  Esc:cancel",
-            .path_input => "Enter:go  Esc:cancel",
             .rename => "Enter:confirm  Esc:cancel",
             .new_file => "Enter:create  Esc:cancel",
             .new_dir => "Enter:create  Esc:cancel",
@@ -2198,7 +2084,6 @@ test "AppMode includes all file operation modes" {
         .tree_view,
         .preview,
         .search,
-        .path_input,
         .rename,
         .new_file,
         .new_dir,
@@ -2206,8 +2091,8 @@ test "AppMode includes all file operation modes" {
         .help,
     };
 
-    // All 9 modes should be defined
-    try std.testing.expectEqual(@as(usize, 9), modes.len);
+    // All 8 modes should be defined
+    try std.testing.expectEqual(@as(usize, 8), modes.len);
 }
 
 // ===== Benchmark-style tests for Success Criteria =====
