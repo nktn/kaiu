@@ -20,7 +20,7 @@ pub const Event = union(enum) {
     winsize: vaxis.Winsize,
 };
 
-/// Pending key for multi-key commands (e.g., 'g' for gg/gn)
+/// Pending key for multi-key commands (e.g., 'g' for gg)
 const PendingKey = struct {
     key: ?u21,
     timestamp: i64,
