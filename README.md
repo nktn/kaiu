@@ -9,7 +9,6 @@ TUI file explorer with Vim keybindings, written in Zig.
 - Incremental search with highlighting
 - File preview with line numbers
 - Hidden files toggle
-- Path navigation (go to path)
 - File operations (mark, yank/cut/paste, delete, rename, create)
 - Clipboard support (OSC 52)
 - Mouse wheel scrolling
@@ -48,7 +47,6 @@ kaiu ~/.config    # Tilde expansion supported
 | `l` / `→` / `Enter` | Expand directory / open preview |
 | `gg` | Jump to top |
 | `G` | Jump to bottom |
-| `gn` | Go to path (Enter: confirm, Esc: cancel) |
 
 ### Tree Operations
 
