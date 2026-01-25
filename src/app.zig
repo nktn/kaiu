@@ -573,14 +573,30 @@ pub const App = struct {
         // If not found, gop.key_ptr.* is already set to path_copy
     }
 
-    /// Collapse a directory and remove from expanded_paths
+    /// Collapse a directory and remove from expanded_paths (including descendants)
     fn collapseDirectory(self: *Self, ft: *tree.FileTree, index: usize) void {
         const entry = &ft.entries.items[index];
         if (entry.kind != .directory or !entry.expanded) return;
 
-        // Remove from expanded_paths
+        const parent_depth = entry.depth;
+
+        // Remove this directory from expanded_paths
         if (self.expanded_paths.fetchRemove(entry.path)) |kv| {
             self.allocator.free(kv.key);
+        }
+
+        // Also remove all descendant directories from expanded_paths
+        // (they will be removed from tree by collapseAt, so we must clean up tracking)
+        var i = index + 1;
+        while (i < ft.entries.items.len) {
+            const descendant = &ft.entries.items[i];
+            if (descendant.depth <= parent_depth) break;
+            if (descendant.kind == .directory and descendant.expanded) {
+                if (self.expanded_paths.fetchRemove(descendant.path)) |kv| {
+                    self.allocator.free(kv.key);
+                }
+            }
+            i += 1;
         }
 
         ft.collapseAt(index);
@@ -923,6 +939,9 @@ pub const App = struct {
         // Clear marked files - paths are now invalid after tree change
         self.clearMarkedFiles();
 
+        // Clear expanded paths - old paths are invalid after root change
+        self.clearExpandedPaths();
+
         self.cursor = 0;
         self.scroll_offset = 0;
         self.input_buffer.clearRetainingCapacity();
@@ -1076,6 +1095,14 @@ pub const App = struct {
             self.allocator.free(key.*);
         }
         self.marked_files.clearRetainingCapacity();
+    }
+
+    fn clearExpandedPaths(self: *Self) void {
+        var iter = self.expanded_paths.keyIterator();
+        while (iter.next()) |key| {
+            self.allocator.free(key.*);
+        }
+        self.expanded_paths.clearRetainingCapacity();
     }
 
     // ===== Yank/Cut/Paste Operations =====
