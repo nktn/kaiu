@@ -94,10 +94,11 @@ kaiu ~/.config    # Tilde expansion supported
 
 ```
 src/
-├── main.zig    # Entry point, CLI argument handling
-├── app.zig     # Application state, event loop, key handling
-├── tree.zig    # FileTree data structure
-└── ui.zig      # libvaxis rendering, search highlighting
+├── main.zig     # Entry point, CLI argument handling
+├── app.zig      # Application state, event loop, key handling
+├── file_ops.zig # File operations (copy, delete, clipboard)
+├── tree.zig     # FileTree data structure
+└── ui.zig       # libvaxis rendering, search highlighting
 ```
 
 ## Architecture
