@@ -88,6 +88,9 @@ pub const App = struct {
     // File marking state
     marked_files: std.StringHashMap(void),
 
+    // Expanded directory paths (preserved across reloads)
+    expanded_paths: std.StringHashMap(void),
+
     // Clipboard state for yank/cut
     clipboard_files: std.ArrayList([]const u8),
     clipboard_operation: ClipboardOperation,
@@ -132,6 +135,7 @@ pub const App = struct {
             .search_matches = .empty,
             .current_match = 0,
             .marked_files = std.StringHashMap(void).init(allocator),
+            .expanded_paths = std.StringHashMap(void).init(allocator),
             .clipboard_files = .empty,
             .clipboard_operation = .none,
             .rename_target_path = null,
@@ -173,6 +177,12 @@ pub const App = struct {
             self.allocator.free(key.*);
         }
         self.marked_files.deinit();
+        // Free owned path copies in expanded_paths
+        var exp_iter = self.expanded_paths.keyIterator();
+        while (exp_iter.next()) |key| {
+            self.allocator.free(key.*);
+        }
+        self.expanded_paths.deinit();
         // Free clipboard files (we own copies of paths)
         for (self.clipboard_files.items) |path| {
             self.allocator.free(path);
@@ -492,7 +502,11 @@ pub const App = struct {
 
         const entry = &ft.entries.items[actual_index];
         if (entry.kind == .directory) {
-            try ft.toggleExpand(actual_index);
+            if (entry.expanded) {
+                self.collapseDirectory(ft, actual_index);
+            } else {
+                try self.expandDirectory(ft, actual_index);
+            }
             // Refresh search results if search is active
             if (self.input_buffer.items.len > 0) {
                 try self.updateSearchResults();
@@ -525,7 +539,7 @@ pub const App = struct {
         const entry = &ft.entries.items[actual_index];
         if (entry.kind == .directory and entry.expanded) {
             // Collapse expanded directory
-            ft.collapseAt(actual_index);
+            self.collapseDirectory(ft, actual_index);
             // Refresh search results if search is active
             if (self.input_buffer.items.len > 0) {
                 self.updateSearchResults() catch {};
@@ -534,6 +548,34 @@ pub const App = struct {
             // Move to parent directory
             self.moveToParent(actual_index);
         }
+    }
+
+    // ===== Expand/Collapse Helpers (with expanded_paths tracking) =====
+
+    /// Expand a directory and track in expanded_paths
+    fn expandDirectory(self: *Self, ft: *tree.FileTree, index: usize) !void {
+        const entry = &ft.entries.items[index];
+        if (entry.kind != .directory or entry.expanded) return;
+
+        // Track the path before expanding
+        const path_copy = try self.allocator.dupe(u8, entry.path);
+        errdefer self.allocator.free(path_copy);
+        try self.expanded_paths.put(path_copy, {});
+
+        try ft.toggleExpand(index);
+    }
+
+    /// Collapse a directory and remove from expanded_paths
+    fn collapseDirectory(self: *Self, ft: *tree.FileTree, index: usize) void {
+        const entry = &ft.entries.items[index];
+        if (entry.kind != .directory or !entry.expanded) return;
+
+        // Remove from expanded_paths
+        if (self.expanded_paths.fetchRemove(entry.path)) |kv| {
+            self.allocator.free(kv.key);
+        }
+
+        ft.collapseAt(index);
     }
 
     fn moveToParent(self: *Self, current_index: usize) void {
@@ -681,7 +723,7 @@ pub const App = struct {
                 i -= 1;
                 const entry = &ft.entries.items[i];
                 if (entry.kind == .directory and entry.expanded) {
-                    ft.collapseAt(i);
+                    self.collapseDirectory(ft, i);
                 }
             }
             // Reset cursor to bounds
@@ -705,7 +747,7 @@ pub const App = struct {
             while (i < current_len) {
                 const entry = &ft.entries.items[i];
                 if (entry.kind == .directory and !entry.expanded) {
-                    ft.toggleExpand(i) catch {
+                    self.expandDirectory(ft, i) catch {
                         // Skip directories we can't access (permission denied, etc.)
                     };
                 }
@@ -726,7 +768,11 @@ pub const App = struct {
         const entry = &ft.entries.items[actual_index];
 
         if (entry.kind == .directory) {
-            try ft.toggleExpand(actual_index);
+            if (entry.expanded) {
+                self.collapseDirectory(ft, actual_index);
+            } else {
+                try self.expandDirectory(ft, actual_index);
+            }
             // Refresh search results if search is active
             if (self.input_buffer.items.len > 0) {
                 try self.updateSearchResults();
@@ -886,6 +932,9 @@ pub const App = struct {
             self.file_tree = try tree.FileTree.init(self.allocator, root_path);
             try self.file_tree.?.readDirectory();
 
+            // Restore expanded directories from expanded_paths
+            try self.restoreExpandedState();
+
             // Clear marked files - paths are now invalid after tree reload
             self.clearMarkedFiles();
 
@@ -899,6 +948,41 @@ pub const App = struct {
             // Refresh search results if search is active
             if (self.input_buffer.items.len > 0) {
                 try self.updateSearchResults();
+            }
+        }
+    }
+
+    /// Restore expanded directories from expanded_paths after tree reload
+    fn restoreExpandedState(self: *Self) !void {
+        const new_ft = self.file_tree orelse return;
+        if (self.expanded_paths.count() == 0) return;
+
+        // Collect paths and sort by length (shorter paths = shallower directories first)
+        var paths_to_expand: std.ArrayList([]const u8) = .empty;
+        defer paths_to_expand.deinit(self.allocator);
+
+        var iter = self.expanded_paths.keyIterator();
+        while (iter.next()) |key| {
+            try paths_to_expand.append(self.allocator, key.*);
+        }
+
+        // Sort by path length (shorter first = parent directories first)
+        std.mem.sort([]const u8, paths_to_expand.items, {}, struct {
+            fn lessThan(_: void, a: []const u8, b: []const u8) bool {
+                return a.len < b.len;
+            }
+        }.lessThan);
+
+        // Expand each path in order
+        for (paths_to_expand.items) |path| {
+            // Find the entry with this path and expand it
+            for (new_ft.entries.items, 0..) |entry, i| {
+                if (std.mem.eql(u8, entry.path, path)) {
+                    if (entry.kind == .directory and !entry.expanded) {
+                        new_ft.toggleExpand(i) catch {};
+                    }
+                    break;
+                }
             }
         }
     }
