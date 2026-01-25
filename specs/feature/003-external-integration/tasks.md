@@ -60,9 +60,10 @@
 - [ ] T019 [US1] Implement refreshVCSStatus() in `src/app.zig` - call vcs.zig functions and populate vcs_status
 - [ ] T020 [US1] Call refreshVCSStatus() on app startup in `src/app.zig` init()
 - [ ] T021 [US1] Call refreshVCSStatus() in reloadTree() in `src/app.zig`
-- [ ] T022 [US1] Update renderEntry() in `src/ui.zig` - apply VCS status colors (green/yellow/red/cyan/gray/magenta)
+- [ ] T022 [US1] Update renderEntry() in `src/ui.zig` - apply VCS status colors (green/yellow/red/cyan/magenta)
 - [ ] T023 [US1] Update renderStatusBar() in `src/ui.zig` - display branch name `[main]` or JJ info `@abc123 (main)`
 - [ ] T024 [US1] Handle VCS errors gracefully in `src/vcs.zig` - return empty status on failure
+- [ ] T024a [US1] Add 2-second timeout for VCS commands in `src/vcs.zig` - prevent UI freeze on slow repos
 - [ ] T025 [US1] Add status message for VCS mode change in `src/app.zig`
 
 **Checkpoint**: VCS status display fully functional - files show colors, branch in status bar, gv cycles modes
@@ -111,6 +112,8 @@
 - [ ] T042 [US3] Implement handleDrop() in `src/app.zig` - process single or multiple dropped files
 - [ ] T043 [US3] Implement checkFilenameConflict() in `src/app.zig` - detect existing files with same name
 - [ ] T044 [US3] Add confirm_overwrite mode handling in `src/app.zig` - overwrite/rename/cancel options
+- [ ] T044a [US3] Implement rename with `name (2).ext` format in `src/app.zig` - space + parenthesis + number
+- [ ] T044b [US3] Implement drop queuing in `src/app.zig` - queue drops during other file operations
 - [ ] T045 [US3] Implement renderConfirmOverwrite() in `src/ui.zig` - display conflict resolution dialog
 - [ ] T046 [US3] Call reloadTree() after successful drop in `src/app.zig`
 - [ ] T047 [US3] Add status message for drop result in `src/app.zig` - "Copied N files" or error
@@ -130,7 +133,7 @@
 
 ### Implementation for User Story 4
 
-- [ ] T049 [US4] Implement macOS file watching in `src/watcher.zig` - use kqueue via std.posix
+- [ ] T049 [US4] Implement macOS file watching in `src/watcher.zig` - use FSEvents for recursive directory watching
 - [ ] T050 [US4] Implement Linux file watching in `src/watcher.zig` - use inotify via std.posix
 - [ ] T051 [US4] Implement Watcher.init() in `src/watcher.zig` - create watcher for directory
 - [ ] T052 [US4] Implement Watcher.deinit() in `src/watcher.zig` - cleanup resources
@@ -138,7 +141,7 @@
 - [ ] T054 [US4] Integrate watcher polling into event loop in `src/app.zig`
 - [ ] T055 [US4] Implement debouncing logic in `src/app.zig` - 300ms window, coalesce events
 - [ ] T056 [US4] Add `W` key handler in `src/app.zig` - toggle watching_enabled
-- [ ] T057 [US4] Update renderStatusBar() in `src/ui.zig` - display [👁] icon when watching enabled
+- [ ] T057 [US4] Update renderStatusBar() in `src/ui.zig` - display `[W]` icon when watching enabled
 - [ ] T058 [US4] Call refreshVCSStatus() on watched file change in `src/app.zig` (integrates with US1)
 - [ ] T059 [US4] Preserve cursor position on auto-refresh in `src/app.zig` - store/restore current path
 - [ ] T060 [US4] Verify expanded_paths preservation on auto-refresh in `src/app.zig`

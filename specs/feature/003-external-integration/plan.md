@@ -133,10 +133,10 @@ pub const VCSFileStatus = enum {
     unchanged,
     modified,    // Yellow
     untracked,   // Green
-    deleted,     // Red
+    deleted,     // Red (staged or unstaged)
     renamed,     // Cyan
-    ignored,     // Gray
     conflict,    // Magenta
+    // Note: Ignored files are NOT tracked - VCS output only, no .gitignore parsing
 };
 
 // image.zig
@@ -210,7 +210,7 @@ pub fn getJJInfo(allocator: Allocator, repo_path: []const u8) !JJInfo {
 
 #### Async Considerations
 
-**Decision**: Use synchronous execution with debouncing.
+**Decision**: Use synchronous execution with debouncing and timeout.
 
 **Rationale**:
 - Git/JJ status is fast for most repos (< 100ms)
@@ -223,6 +223,10 @@ pub fn getJJInfo(allocator: Allocator, repo_path: []const u8) !JJInfo {
   - App startup
   - Manual reload (`R`)
   - Debounced file change detection
+- **Timeout**: 2 second timeout for VCS commands to prevent UI freeze
+  - On timeout: show no VCS status, display warning in status message
+  - User can still navigate and use other features
+- **Fallback**: If VCS command fails or times out, display files without status colors
 
 ## Implementation Phases
 
@@ -357,20 +361,26 @@ pub fn getJJInfo(allocator: Allocator, repo_path: []const u8) !JJInfo {
 
 7. **Task 3.7**: Implement filename conflict handling
    - Add confirm_overwrite mode
-   - Options: overwrite / rename (add suffix) / cancel
+   - Options: overwrite / rename / cancel
+   - Rename uses `name (2).ext` format (space + parenthesis + number)
    - UI for conflict resolution
 
-8. **Task 3.8**: Auto-refresh after drop
+8. **Task 3.8**: Implement drop queuing
+   - Queue drops during other file operations (rename, delete, paste)
+   - Process queued drops after current operation completes
+   - Show "Drop queued" status message
+
+9. **Task 3.9**: Auto-refresh after drop
    - Call reloadTree() on successful drop
    - Preserve cursor position
 
-9. **Task 3.9**: Graceful degradation for unsupported terminals
+10. **Task 3.10**: Graceful degradation for unsupported terminals
    - Detect if terminal supports drops
    - Silently ignore drops if not supported
 
 ### Phase 4: File System Watching (P3) - US4
 
-**Dependencies**: Phase 1 (VCS integration for FR-009)
+**Dependencies**: Phase 1 (VCS status refresh integration - FR-006)
 
 **Tasks**:
 
@@ -379,9 +389,10 @@ pub fn getJJInfo(allocator: Allocator, repo_path: []const u8) !JJInfo {
    - WatchEvent enum
    - Platform abstraction
 
-2. **Task 4.2**: Implement macOS file watching (kqueue/FSEvents)
-   - Use std.posix for kqueue if available
-   - Or call out to FSEvents via system calls
+2. **Task 4.2**: Implement macOS file watching (FSEvents)
+   - Use FSEvents API for recursive directory watching
+   - FSEvents automatically handles subdirectory creation/deletion
+   - Simpler than kqueue for tree-wide monitoring
 
 3. **Task 4.3**: Implement Linux file watching (inotify)
    - Use std.posix.inotify
@@ -402,7 +413,7 @@ pub fn getJJInfo(allocator: Allocator, repo_path: []const u8) !JJInfo {
    - Show/hide status bar icon
 
 7. **Task 4.7**: Update status bar with watching icon
-   - Display `[eye]` when watching is enabled (use appropriate character)
+   - Display `[W]` when watching is enabled (ASCII for terminal compatibility)
    - Hide when disabled
 
 8. **Task 4.8**: Integrate with VCS status refresh
@@ -487,7 +498,7 @@ Known support:
 
 3. **File Watching Complexity**
    - Phase 4 is P3 (lowest priority)
-   - Start with macOS kqueue (simpler than FSEvents)
+   - Use FSEvents on macOS for recursive directory watching
    - Manual `R` refresh always works as fallback
 
 4. **VCS Performance**
@@ -501,9 +512,9 @@ Known support:
 
 2. **Terminal Drop Protocol**: Does vaxis expose OSC 52 or similar for receiving dropped files?
 
-3. **File Watching on macOS**: Use kqueue directly or shell out to `fswatch`?
+3. ~~**File Watching on macOS**: Use kqueue directly or shell out to `fswatch`?~~ → **Resolved**: Use FSEvents for recursive watching
 
-4. **JJ Output Format**: Is `jj status --color=never` output stable/documented?
+4. **JJ Output Format**: Is `jj status --color=never` output stable/documented? Consider using `--template` for locale-independent parsing.
 
 ## Task Priority Summary
 

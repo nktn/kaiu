@@ -14,6 +14,9 @@
 - Q: 監視状態をどのように表示するか？ → A: A - ステータスバーにアイコン表示 (オン時のみ表示)
 - Q: Git staged と unstaged を区別するか？ → A: A - 区別しない (両方とも黄色 - シンプルさ優先)
 - Q: 起動時のファイルシステム監視はデフォルトでオン/オフ？ → A: B - デフォルトオン (ユーザーが `W` で無効化可能)
+- Q: `.gitignore` の扱いは？ → A: VCS出力から取得できる範囲のみ（独自パースはしない）。`.gitignore`ファイル自体は通常ファイルとして扱う
+- Q: macOS のファイル監視方式は？ → A: FSEvents 採用（再帰監視が容易）
+- Q: 衝突時のリネーム規則は？ → A: `name (2).ext` 形式（スペース + 括弧 + 数字）
 
 ---
 
@@ -42,9 +45,9 @@
 
 1. **Given** kaiu is running in a Git repository, **When** a file is modified, **Then** file name is displayed in yellow
 2. **Given** kaiu is running in a Git repository, **When** a new untracked file exists, **Then** file name is displayed in green
-3. **Given** kaiu is running in a Git repository, **When** a file is staged for deletion, **Then** file name is displayed in red
+3. **Given** kaiu is running in a Git repository, **When** a file is deleted (staged or unstaged), **Then** file name is displayed in red
 4. **Given** kaiu is running in a Git repository, **When** a file is renamed, **Then** file name is displayed in cyan
-5. **Given** kaiu is running in a Git repository, **When** a file is in .gitignore, **Then** file name is displayed in gray
+5. **Given** kaiu is running in a Git repository, **When** a file has merge conflict, **Then** file name is displayed in magenta
 6. **Given** kaiu is running in a Git repository, **When** user views status bar, **Then** current branch name is displayed (e.g., `[main]`)
 7. **Given** kaiu is running in a JJ repository, **When** user views status bar, **Then** change ID and bookmark are displayed (e.g., `@abc123 (main)`)
 8. **Given** both .git and .jj directories exist, **When** kaiu starts with Auto mode, **Then** JJ is used by default
@@ -109,7 +112,7 @@
 3. **Given** watching is enabled, **When** file is deleted externally, **Then** file disappears from tree within 2 seconds
 4. **Given** watching is enabled, **When** file is renamed externally, **Then** tree reflects new name within 2 seconds
 5. **Given** watching is enabled, **When** multiple files change rapidly, **Then** updates are debounced (no UI flicker)
-6. **Given** watching is enabled, **When** user views status bar, **Then** watching icon [👁] is displayed
+6. **Given** watching is enabled, **When** user views status bar, **Then** watching icon `[W]` is displayed
 7. **Given** watching is enabled, **When** user presses `W`, **Then** watching is disabled and icon disappears
 8. **Given** watching is disabled, **When** file is created externally, **Then** tree is NOT updated (manual `R` required)
 9. **Given** watching is enabled and VCS repository exists, **When** file is modified externally, **Then** VCS status is also updated
@@ -120,13 +123,14 @@
 ### Edge Cases
 
 - VCS repository not found: Show no VCS indicator, files in default color
-- .gitignore parsing error: Ignore .gitignore, show all files in default color
+- VCS command fails/times out: Show no VCS indicator, files in default color, no UI freeze
 - Corrupted image file: Show "[Cannot display: corrupted or unsupported format]"
 - Very large image (>10MB): Show "[Image too large to preview]"
-- Drop during file operation: Queue the drop, process after current operation
+- Drop during file operation: Queue the drop, process after current operation (FR-029)
 - Symlink in tree: Show VCS status of target file
 - File changes while preview is open: Refresh preview content
 - Network drive or slow filesystem: Increase debounce timeout automatically
+- Large repository (slow VCS): VCS command has timeout, fallback to no-status display
 
 ---
 
@@ -140,10 +144,10 @@
 - **FR-003**: App MUST display file status using colors:
   - Green: New/Untracked
   - Yellow: Modified (staged and unstaged are not distinguished)
-  - Red: Deleted (staged)
+  - Red: Deleted (staged or unstaged)
   - Cyan: Renamed
-  - Gray: Ignored
   - Magenta: Conflict
+  - Note: Ignored files (`.gitignore`) are NOT specially colored - VCS output only
 - **FR-004**: App MUST display branch/bookmark info in status bar
   - Git format: `[branch-name]`
   - JJ format: `@change-id (bookmark)`
@@ -169,6 +173,8 @@
 - **FR-015**: App MUST copy dropped files to target directory (cursor on directory → that directory; cursor on file → parent directory)
 - **FR-016**: App MUST handle multiple file drops in single operation
 - **FR-017**: App MUST prompt on filename conflict (overwrite/rename/cancel)
+- **FR-028**: App MUST use `name (2).ext` format for rename on conflict (space + parenthesis + number)
+- **FR-029**: App MUST queue drops during other file operations and process after completion
 - **FR-018**: App MUST refresh tree after successful drop
 - **FR-019**: App MUST gracefully ignore drops on unsupported terminals
 
@@ -207,20 +213,22 @@
 ### Tree View with VCS Status
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ kaiu - ~/projects/myapp                    [👁] [main]     │
+│ kaiu - ~/projects/myapp                     [W] [main]      │
 ├─────────────────────────────────────────────────────────────┤
 │ 📁 myapp/                                                   │
 │   📁 src/                                                   │
 │     📄 main.zig              (yellow - modified)            │
 │     📄 new_module.zig        (green - untracked)            │
 │   📁 assets/                                                │
-│     📄 logo.png              (gray - ignored)               │
+│     📄 logo.png                                             │
 │ > 📄 README.md                                              │
 │                                                             │
 ├─────────────────────────────────────────────────────────────┤
 │ j/k:move  gv:VCS mode  o:preview  q:quit                    │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+Note: `[W]` = Watching enabled (ASCII for terminal compatibility)
 
 ### Image Preview
 ```
