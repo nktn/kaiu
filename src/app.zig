@@ -557,12 +557,20 @@ pub const App = struct {
         const entry = &ft.entries.items[index];
         if (entry.kind != .directory or entry.expanded) return;
 
-        // Track the path before expanding
+        // Save path before toggleExpand (entry may be invalidated after realloc)
         const path_copy = try self.allocator.dupe(u8, entry.path);
         errdefer self.allocator.free(path_copy);
-        try self.expanded_paths.put(path_copy, {});
 
+        // Expand first, then track (fixes issue: map tracks unexpanded dir on failure)
         try ft.toggleExpand(index);
+
+        // Use getOrPut to avoid leaking if path already exists (fixes duplicate key leak)
+        const gop = try self.expanded_paths.getOrPut(path_copy);
+        if (gop.found_existing) {
+            // Path already tracked, free the duplicate
+            self.allocator.free(path_copy);
+        }
+        // If not found, gop.key_ptr.* is already set to path_copy
     }
 
     /// Collapse a directory and remove from expanded_paths
@@ -973,15 +981,40 @@ pub const App = struct {
             }
         }.lessThan);
 
+        // Track which paths were found in the new tree
+        var found_paths: std.ArrayList([]const u8) = .empty;
+        defer found_paths.deinit(self.allocator);
+
         // Expand each path in order
         for (paths_to_expand.items) |path| {
+            var found = false;
             // Find the entry with this path and expand it
             for (new_ft.entries.items, 0..) |entry, i| {
                 if (std.mem.eql(u8, entry.path, path)) {
+                    found = true;
                     if (entry.kind == .directory and !entry.expanded) {
                         new_ft.toggleExpand(i) catch {};
                     }
                     break;
+                }
+            }
+            if (found) {
+                try found_paths.append(self.allocator, path);
+            }
+        }
+
+        // Prune stale paths that no longer exist in the tree (fixes memory leak)
+        for (paths_to_expand.items) |path| {
+            var still_exists = false;
+            for (found_paths.items) |found_path| {
+                if (std.mem.eql(u8, path, found_path)) {
+                    still_exists = true;
+                    break;
+                }
+            }
+            if (!still_exists) {
+                if (self.expanded_paths.fetchRemove(path)) |kv| {
+                    self.allocator.free(kv.key);
                 }
             }
         }
