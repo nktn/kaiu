@@ -6,10 +6,11 @@
 - **TUI library**: libvaxis (vaxis-0.5.1)
 - **Target terminal**: Ghostty (primary), modern terminals with Kitty/Sixel support
 - **Current modules**:
-  - `src/main.zig` - Entry point, CLI args, path validation (~140 lines)
-  - `src/app.zig` - App state, event loop, state machine (~1100 lines)
+  - `src/main.zig` - Entry point, CLI args, path validation (~174 lines)
+  - `src/app.zig` - App state, event loop, state machine (~1887 lines)
+  - `src/file_ops.zig` - File operations, path utilities (~390 lines)
   - `src/tree.zig` - FileTree data structure (~370 lines)
-  - `src/ui.zig` - libvaxis rendering, highlighting (~420 lines)
+  - `src/ui.zig` - libvaxis rendering, highlighting (~463 lines)
 
 ## Constitution Check
 
@@ -43,10 +44,11 @@ Verify the plan aligns with specs/constitution.md principles:
 
 ```
 src/
-├── main.zig          # Entry point (existing)
-├── app.zig           # App state, event loop (existing, ~1100 lines)
-├── tree.zig          # FileTree data structure (existing)
-├── ui.zig            # Rendering (existing)
+├── main.zig          # Entry point (existing, ~174 lines)
+├── app.zig           # App state, event loop (existing, ~1887 lines)
+├── file_ops.zig      # File operations (existing, ~390 lines)
+├── tree.zig          # FileTree data structure (existing, ~370 lines)
+├── ui.zig            # Rendering (existing, ~463 lines)
 ├── vcs.zig           # NEW: VCS detection, status fetching
 ├── watcher.zig       # NEW: File system watching
 └── image.zig         # NEW: Image format detection, loading
