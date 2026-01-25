@@ -773,13 +773,38 @@ pub const App = struct {
         self.preview_image_dims = image.getImageDimensions(path);
 
         // Try to load image using Kitty Graphics Protocol
-        if (self.vx.caps.kitty_graphics) {
-            self.preview_image = self.vx.loadImage(
-                self.allocator,
-                self.tty.writer(),
-                .{ .path = path },
-            ) catch null;
+        // Note: Force enable on Ghostty since libvaxis may not detect it correctly
+        const is_ghostty = if (std.posix.getenv("TERM_PROGRAM")) |tp|
+            std.mem.eql(u8, tp, "ghostty")
+        else
+            false;
+
+        // Force kitty_graphics capability for Ghostty
+        if (is_ghostty and !self.vx.caps.kitty_graphics) {
+            self.vx.caps.kitty_graphics = true;
         }
+
+        var load_error: ?[]const u8 = null;
+        if (self.vx.caps.kitty_graphics) {
+            // Load with zigimg, transmit with RGBA format
+            var read_buffer: [1024 * 1024 * 5]u8 = undefined; // 5MB buffer
+            if (vaxis.zigimg.Image.fromFilePath(self.allocator, path, &read_buffer)) |loaded_img_const| {
+                var loaded_img = loaded_img_const;
+                defer loaded_img.deinit();
+                self.preview_image = self.vx.transmitImage(
+                    self.allocator,
+                    self.tty.writer(),
+                    &loaded_img,
+                    .rgba,
+                ) catch |err| blk: {
+                    load_error = @errorName(err);
+                    break :blk null;
+                };
+            } else |err| {
+                load_error = @errorName(err);
+            }
+        }
+        const try_kitty = self.vx.caps.kitty_graphics;
 
         // If image load failed or no Kitty support, show fallback (T033)
         if (self.preview_image == null) {
@@ -799,13 +824,17 @@ pub const App = struct {
                 return;
             };
 
-            var buf: [128]u8 = undefined;
+            var buf: [256]u8 = undefined;
             const filename = std.fs.path.basename(path);
             const size_kb = stat.size / 1024;
+
+            // Debug info in fallback message
+            const reason: []const u8 = if (load_error) |e| e else if (!try_kitty) "NoKitty" else "NullImg";
+
             const fallback_msg = if (dims) |d|
-                std.fmt.bufPrint(&buf, "[Image: {s} ({d}x{d}, {d}KB)]", .{ filename, d.width, d.height, size_kb }) catch "[Image]"
+                std.fmt.bufPrint(&buf, "[{s}] {s} ({d}x{d}, {d}KB)", .{ reason, filename, d.width, d.height, size_kb }) catch "[Image]"
             else
-                std.fmt.bufPrint(&buf, "[Image: {s} ({d}KB)]", .{ filename, size_kb }) catch "[Image]";
+                std.fmt.bufPrint(&buf, "[{s}] {s} ({d}KB)", .{ reason, filename, size_kb }) catch "[Image]";
 
             self.preview_content = try self.allocator.dupe(u8, fallback_msg);
         }
@@ -1932,7 +1961,7 @@ pub const App = struct {
             });
 
             // Draw the image scaled to fit the window
-            try img.draw(img_win, .{ .scale = .fit });
+            try img.draw(img_win, .{ .scale = .contain });
         } else if (self.preview_content) |content| {
             // Fallback: show text message centered (T033)
             const row: u16 = if (height > 3) height / 2 else 1;
