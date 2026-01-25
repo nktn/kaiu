@@ -2036,8 +2036,8 @@ pub const App = struct {
         if (content.len == 0) return;
 
         // Parse paths (may be multiple, separated by newlines or spaces)
-        var paths = std.ArrayList([]const u8).init(self.allocator);
-        defer paths.deinit();
+        var paths: std.ArrayList([]const u8) = .empty;
+        defer paths.deinit(self.allocator);
 
         // Try to extract file paths from the pasted content
         var iter = std.mem.tokenizeAny(u8, content, "\n\r");
@@ -2047,7 +2047,7 @@ pub const App = struct {
 
             // Check if this looks like a file path
             if (self.isValidFilePath(trimmed)) {
-                try paths.append(trimmed);
+                try paths.append(self.allocator, trimmed);
             }
         }
 
@@ -2111,10 +2111,7 @@ pub const App = struct {
             defer self.allocator.free(final_dest);
 
             // Copy the file/directory (T040, T041)
-            self.copyPath(expanded, final_dest) catch |err| {
-                _ = err;
-                continue;
-            };
+            self.copyPath(expanded, final_dest) catch continue;
             success_count += 1;
         }
 
