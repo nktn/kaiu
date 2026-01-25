@@ -12,7 +12,7 @@ description: Safe handling of symbolic links in recursive file operations
 
 When performing recursive file operations, symbolic links introduce security and correctness risks:
 
-1. **Security**: Following a symlink during deletion could delete files outside the intended directory tree
+1. **Security**: Using `statFile()` before deletion follows symlinks, leading to incorrect decision paths
 2. **Infinite loops**: Symlink cycles (A → B → A) cause infinite recursion
 3. **Unexpected behavior**: Following symlinks during copy might duplicate large directory trees
 4. **User expectation**: Users expect symlinks to be preserved, not followed
@@ -49,10 +49,11 @@ pub fn deletePathRecursive(path: []const u8) !void {
 
 **Why this order matters**:
 ```zig
-// ❌ WRONG ORDER - follows symlink before detecting it
+// ❌ WRONG ORDER - statFile follows symlink before detecting it
 const stat = try std.fs.cwd().statFile(path); // statFile() FOLLOWS symlinks
 if (stat.kind == .directory) {
-    try std.fs.cwd().deleteTree(path); // Deletes symlink TARGET!
+    // deleteTree does NOT follow symlinks, but wrong branch was taken
+    try std.fs.cwd().deleteTree(path);
 }
 
 // ✅ CORRECT ORDER - detects symlink first
