@@ -111,7 +111,7 @@ pub fn detectVCS(path: []const u8) VCSType {
 }
 
 /// Execute a command and capture stdout.
-/// Returns null on timeout or error.
+/// Returns null on timeout or error. Always cleans up child process to avoid zombies.
 fn executeCommand(allocator: Allocator, argv: []const []const u8, cwd: ?[]const u8) ?[]const u8 {
     var child = std.process.Child.init(argv, allocator);
     child.cwd = cwd;
@@ -120,19 +120,41 @@ fn executeCommand(allocator: Allocator, argv: []const []const u8, cwd: ?[]const 
 
     child.spawn() catch return null;
 
-    // Read stdout
-    const stdout = child.stdout orelse return null;
+    // Read stdout - ensure we always wait() even on error to avoid zombies
+    const stdout = child.stdout orelse {
+        _ = child.wait() catch {};
+        return null;
+    };
 
     // Read all output into allocated buffer
     var output_list: std.ArrayList(u8) = .empty;
     defer output_list.deinit(allocator);
 
     var read_buf: [4096]u8 = undefined;
+    var exceeded_limit = false;
     while (true) {
-        const bytes_read = stdout.read(&read_buf) catch return null;
+        const bytes_read = stdout.read(&read_buf) catch {
+            // Drain remaining output before wait() to prevent child blocking on full pipe
+            drainPipe(stdout);
+            _ = child.wait() catch {};
+            return null;
+        };
         if (bytes_read == 0) break;
-        output_list.appendSlice(allocator, read_buf[0..bytes_read]) catch return null;
-        if (output_list.items.len > 1024 * 1024) break; // Limit to 1MB
+
+        if (output_list.items.len + bytes_read > 1024 * 1024) {
+            exceeded_limit = true;
+            break; // Limit to 1MB
+        }
+        output_list.appendSlice(allocator, read_buf[0..bytes_read]) catch {
+            drainPipe(stdout);
+            _ = child.wait() catch {};
+            return null;
+        };
+    }
+
+    // Drain remaining output if we exceeded limit, to prevent child blocking
+    if (exceeded_limit) {
+        drainPipe(stdout);
     }
 
     // Wait for process to complete
@@ -144,6 +166,15 @@ fn executeCommand(allocator: Allocator, argv: []const []const u8, cwd: ?[]const 
 
     // Return owned copy
     return allocator.dupe(u8, output_list.items) catch null;
+}
+
+/// Drain a pipe to prevent child process from blocking on full stdout buffer.
+fn drainPipe(pipe: std.fs.File) void {
+    var buf: [4096]u8 = undefined;
+    while (true) {
+        const n = pipe.read(&buf) catch break;
+        if (n == 0) break;
+    }
 }
 
 /// Get Git status for the repository at the given path.
@@ -206,14 +237,24 @@ fn parseGitStatus(result: *VCSStatusResult, output: []const u8) !void {
         // Determine status
         const status = mapGitStatus(index_status, worktree_status);
 
-        // Handle rename: skip the new path (second null-terminated string)
+        // Handle rename: use NEW path (second null-terminated string) for status map
+        // git status -z format for renames: "R  old_path\0new_path\0"
+        // UI looks up by current (new) path, so we need to register that
         if (index_status == 'R' or worktree_status == 'R') {
-            // Skip new path
+            // Read new path
+            const new_path_start = i;
             while (i < output.len and output[i] != 0) : (i += 1) {}
+            if (i > new_path_start) {
+                const new_path = output[new_path_start..i];
+                try result.put(new_path, status);
+            } else {
+                // Fallback to old path if new path is empty (shouldn't happen)
+                try result.put(path, status);
+            }
             if (i < output.len) i += 1;
+        } else {
+            try result.put(path, status);
         }
-
-        try result.put(path, status);
     }
 }
 

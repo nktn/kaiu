@@ -144,26 +144,43 @@ fn getPngDimensions(path: []const u8) ?ImageDimensions {
 }
 
 /// Read JPG dimensions from SOF marker.
+/// Handles 0xFF padding bytes that may appear between markers.
 fn getJpgDimensions(path: []const u8) ?ImageDimensions {
     var file = std.fs.openFileAbsolute(path, .{}) catch return null;
     defer file.close();
 
-    // Skip SOI marker
+    // Skip SOI marker (0xFF 0xD8)
     file.seekTo(2) catch return null;
 
     var buf: [9]u8 = undefined;
+    var iterations: usize = 0;
+    const max_iterations: usize = 1000; // Prevent infinite loops on malformed files
 
     // Scan for SOF0 or SOF2 marker
-    while (true) {
-        // Read marker
-        if ((file.read(buf[0..2]) catch return null) != 2) return null;
+    while (iterations < max_iterations) : (iterations += 1) {
+        // Read marker byte
+        if ((file.read(buf[0..1]) catch return null) != 1) return null;
 
-        if (buf[0] != 0xFF) return null;
+        // Skip padding 0xFF bytes (valid per JPEG spec)
+        while (buf[0] == 0xFF) {
+            if ((file.read(buf[0..1]) catch return null) != 1) return null;
+            // If we hit 0x00, it's an escaped 0xFF in data - shouldn't happen in marker area
+            if (buf[0] == 0x00) return null;
+        }
 
-        const marker = buf[1];
+        const marker = buf[0];
 
-        // SOF0 (0xC0) or SOF2 (0xC2) - baseline or progressive DCT
-        if (marker == 0xC0 or marker == 0xC2) {
+        // EOI (End of Image) - no SOF found
+        if (marker == 0xD9) return null;
+
+        // SOF markers: SOF0 (0xC0), SOF1 (0xC1), SOF2 (0xC2), SOF3 (0xC3)
+        // SOF5-7 (0xC5-0xC7), SOF9-11 (0xC9-0xCB), SOF13-15 (0xCD-0xCF)
+        // All contain image dimensions in the same format
+        if ((marker >= 0xC0 and marker <= 0xC3) or
+            (marker >= 0xC5 and marker <= 0xC7) or
+            (marker >= 0xC9 and marker <= 0xCB) or
+            (marker >= 0xCD and marker <= 0xCF))
+        {
             // Read length + precision + height + width
             if ((file.read(buf[0..7]) catch return null) != 7) return null;
 
@@ -173,12 +190,19 @@ fn getJpgDimensions(path: []const u8) ?ImageDimensions {
             return .{ .width = width, .height = height };
         }
 
-        // Skip to next marker
+        // Standalone markers (no length field): RST0-7, SOI, EOI, TEM
+        if ((marker >= 0xD0 and marker <= 0xD7) or marker == 0xD8 or marker == 0x01) {
+            continue; // No segment to skip
+        }
+
+        // Read segment length and skip
         if ((file.read(buf[0..2]) catch return null) != 2) return null;
         const length = std.mem.readInt(u16, buf[0..2], .big);
         if (length < 2) return null;
         file.seekBy(@as(i64, length) - 2) catch return null;
     }
+
+    return null; // Max iterations reached
 }
 
 /// Read GIF dimensions from Logical Screen Descriptor.
