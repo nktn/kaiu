@@ -237,10 +237,12 @@ fn parseGitStatus(result: *VCSStatusResult, output: []const u8) !void {
         // Determine status
         const status = mapGitStatus(index_status, worktree_status);
 
-        // Handle rename: use NEW path (second null-terminated string) for status map
-        // git status -z format for renames: "R  old_path\0new_path\0"
+        // Handle rename/copy: use NEW path (second null-terminated string) for status map
+        // git status -z format for renames/copies: "R  old_path\0new_path\0" or "C  src\0dest\0"
         // UI looks up by current (new) path, so we need to register that
-        if (index_status == 'R' or worktree_status == 'R') {
+        if (index_status == 'R' or worktree_status == 'R' or
+            index_status == 'C' or worktree_status == 'C')
+        {
             // Read new path
             const new_path_start = i;
             while (i < output.len and output[i] != 0) : (i += 1) {}
@@ -268,8 +270,9 @@ fn mapGitStatus(index: u8, worktree: u8) VCSFileStatus {
     // Untracked
     if (index == '?' and worktree == '?') return .untracked;
 
-    // Renamed
+    // Renamed or Copied (both shown as cyan)
     if (index == 'R' or worktree == 'R') return .renamed;
+    if (index == 'C' or worktree == 'C') return .renamed; // Copied files shown same as renamed
 
     // Deleted
     if (index == 'D' or worktree == 'D') return .deleted;

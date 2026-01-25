@@ -173,6 +173,10 @@ fn getJpgDimensions(path: []const u8) ?ImageDimensions {
         // EOI (End of Image) - no SOF found
         if (marker == 0xD9) return null;
 
+        // SOS (Start of Scan) - entropy-coded data follows, SOF must come before SOS
+        // If we hit SOS without finding SOF, the file is malformed or we missed it
+        if (marker == 0xDA) return null;
+
         // SOF markers: SOF0 (0xC0), SOF1 (0xC1), SOF2 (0xC2), SOF3 (0xC3)
         // SOF5-7 (0xC5-0xC7), SOF9-11 (0xC9-0xCB), SOF13-15 (0xCD-0xCF)
         // All contain image dimensions in the same format
