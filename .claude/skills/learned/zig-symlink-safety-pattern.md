@@ -159,12 +159,15 @@ Consider this directory structure:
 
 **Without symlink safety**:
 ```zig
-// ❌ DANGEROUS - statFile follows symlink, then deleteTree deletes target
+// ❌ PROBLEMATIC - statFile follows symlink, leading to wrong branch
 const stat = try std.fs.cwd().statFile("/tmp/my_app/temp"); // stat.kind = .directory (from /etc)
 if (stat.kind == .directory) {
-    // deleteTree on symlink path deletes the symlink AND its contents if resolved
+    // deleteTree does NOT follow symlinks - it just deletes the symlink itself
+    // But the code took wrong branch because statFile reported it as a directory
     try std.fs.cwd().deleteTree("/tmp/my_app/temp");
 }
+// Note: deleteTree() does NOT follow symlinks, so /etc is safe here.
+// The issue is incorrect decision-making based on statFile() result.
 ```
 
 **With symlink safety**:
