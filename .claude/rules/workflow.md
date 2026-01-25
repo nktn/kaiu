@@ -495,13 +495,23 @@ PR マージ前に以下を確認する（追加 PR の発生を防ぐため）:
 ### Worktree 作成
 
 ```bash
-# main から worktree を作成
+# 1. main を最新に更新
 cd ~/Projects/kaiu
+git fetch origin main
+git checkout main
+git pull origin main
+
+# 2. 新しいブランチで worktree を作成
 git worktree add ../kaiu-41 -b technical/41-refactor-app
 
-# 作業完了後に削除
+# 3. 既存ブランチで worktree を作成する場合
+git worktree add ../kaiu-41 technical/41-refactor-app
+
+# 4. 作業完了後に削除
 git worktree remove ../kaiu-41
 ```
+
+**注意**: 「branch already checked out」エラーが出たら、そのブランチが他の worktree で使用中。`git worktree list` で確認。
 
 ### 運用ルール
 
@@ -524,6 +534,9 @@ git worktree remove ../kaiu-41
 | 2 | **Feature > Technical** | ユーザー価値を優先 |
 | 3 | **P1 > P2 > P3** | 優先度の高い機能を優先 |
 | 4 | **先にマージした方が正** | 後からマージする側が解決責任を持つ |
+| 5 | **Issue 番号が小さい方** | 同優先度の場合、先に作成された Issue を優先 |
+
+**タイブレーカー**: 上記で決まらない場合は、相談して決定。両方の変更を活かせる統合を検討。
 
 ### ホットスポットファイル
 
@@ -550,11 +563,25 @@ git merge origin/main
 # 3. コンフリクト解決
 # - 上記の優先順位に従って判断
 # - 両方の変更を活かせる場合は統合
+# - ファイルを編集してコンフリクトマーカーを削除
 
-# 4. テストで動作確認
+# 4. 解決をステージング
+git add <解決したファイル>
+
+# 5. リベース/マージを続行
+git rebase --continue
+# または
+git merge --continue
+
+# 6. 困ったら中断してやり直し
+git rebase --abort
+# または
+git merge --abort
+
+# 7. テストで動作確認
 zig build test
 
-# 5. 動作確認
+# 8. 動作確認
 zig build run
 ```
 
