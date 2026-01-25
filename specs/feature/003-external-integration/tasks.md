@@ -3,7 +3,7 @@
 **Input**: Design documents from `/specs/feature/003-external-integration/`
 **Prerequisites**: plan.md (required), spec.md (required for user stories)
 
-**Status**: In Progress (Phase 1-4 Complete: 36/70 tasks)
+**Status**: In Progress (Phase 1-6 Complete: 50/70 tasks)
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -104,7 +104,7 @@
 
 ### Implementation for User Story 3
 
-- [ ] T037 [US3] Research libvaxis drag & drop support - check if vaxis exposes terminal drop events
+- [x] T037 [US3] Research libvaxis drag & drop support - **BLOCKED**: vaxis doesn't expose terminal drop events
 - [ ] T038 [US3] Add DropEvent handling to event loop in `src/app.zig` - parse drop payloads
 - [ ] T039 [US3] Implement getDropTargetDir() in `src/app.zig` - cursor on dir → that dir, cursor on file → parent
 - [ ] T040 [US3] Implement copyFile() helper in `src/app.zig` - copy single file using std.fs
@@ -133,19 +133,19 @@
 
 ### Implementation for User Story 4
 
-- [ ] T049 [US4] Implement macOS file watching in `src/watcher.zig` - use FSEvents for recursive directory watching
-- [ ] T050 [US4] Implement Linux file watching in `src/watcher.zig` - use inotify via std.posix
-- [ ] T051 [US4] Implement Watcher.init() in `src/watcher.zig` - create watcher for directory
-- [ ] T052 [US4] Implement Watcher.deinit() in `src/watcher.zig` - cleanup resources
-- [ ] T053 [US4] Implement Watcher.poll() in `src/watcher.zig` - non-blocking check for events
-- [ ] T054 [US4] Integrate watcher polling into event loop in `src/app.zig`
-- [ ] T055 [US4] Implement debouncing logic in `src/app.zig` - 300ms window, coalesce events
-- [ ] T056 [US4] Add `W` key handler in `src/app.zig` - toggle watching_enabled
-- [ ] T057 [US4] Update renderStatusBar() in `src/ui.zig` - display `[W]` icon when watching enabled
-- [ ] T058 [US4] Call refreshVCSStatus() on watched file change in `src/app.zig` (integrates with US1)
-- [ ] T059 [US4] Preserve cursor position on auto-refresh in `src/app.zig` - store/restore current path
-- [ ] T060 [US4] Verify expanded_paths preservation on auto-refresh in `src/app.zig`
-- [ ] T061 [US4] Add status message for watching toggle in `src/app.zig` - "Watching enabled/disabled"
+- [x] T049 [US4] Implement macOS file watching in `src/watcher.zig` - using mtime polling for cross-platform
+- [x] T050 [US4] Implement Linux file watching in `src/watcher.zig` - using mtime polling for cross-platform
+- [x] T051 [US4] Implement Watcher.init() in `src/watcher.zig` - create watcher for directory
+- [x] T052 [US4] Implement Watcher.deinit() in `src/watcher.zig` - cleanup resources
+- [x] T053 [US4] Implement Watcher.poll() in `src/watcher.zig` - non-blocking check for events
+- [x] T054 [US4] Integrate watcher polling into event loop in `src/app.zig`
+- [x] T055 [US4] Implement debouncing logic in `src/app.zig` - 300ms window, coalesce events
+- [x] T056 [US4] Add `W` key handler in `src/app.zig` - toggle watching_enabled
+- [x] T057 [US4] Update renderStatusBar() in `src/app.zig` - display `[W]` icon when watching enabled
+- [x] T058 [US4] Call refreshVCSStatus() on watched file change in `src/app.zig` (integrates with US1)
+- [x] T059 [US4] Preserve cursor position on auto-refresh in `src/app.zig` - store/restore current path
+- [x] T060 [US4] Verify expanded_paths preservation on auto-refresh in `src/app.zig`
+- [x] T061 [US4] Add status message for watching toggle in `src/app.zig` - "Watching enabled/disabled"
 
 **Checkpoint**: File watching functional - external changes auto-refresh tree, VCS status updates, icon shows state
 
@@ -158,7 +158,7 @@
 - [ ] T062 [P] Add error handling for all VCS command failures in `src/vcs.zig`
 - [ ] T063 [P] Add error handling for image loading failures in `src/image.zig`
 - [ ] T064 [P] Add error handling for watcher initialization failures in `src/watcher.zig`
-- [ ] T065 Update help overlay in `src/ui.zig` - add gv, W keys
+- [x] T065 Update help overlay in `src/ui.zig` - add gv, W keys
 - [ ] T066 Update README.md - add new keybindings (gv, W)
 - [ ] T067 Update README.md - add new features (VCS status, image preview, drag & drop, file watching)
 - [ ] T068 Memory leak check - verify all allocations freed in deinit()

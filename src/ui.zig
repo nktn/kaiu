@@ -461,6 +461,8 @@ pub fn renderHelp(win: vaxis.Window) !void {
         .{ "R", "Reload tree" },
         .{ "c/C", "Copy path/name" },
         .{ "o/Enter", "Open/Preview" },
+        .{ "gv", "Cycle VCS mode" },
+        .{ "W", "Toggle watching" },
         .{ "q", "Quit" },
     };
 

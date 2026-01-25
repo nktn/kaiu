@@ -5,6 +5,7 @@ const ui = @import("ui.zig");
 const file_ops = @import("file_ops.zig");
 const vcs = @import("vcs.zig");
 const image = @import("image.zig");
+const watcher = @import("watcher.zig");
 
 pub const AppMode = enum {
     tree_view,
@@ -110,6 +111,10 @@ pub const App = struct {
     vcs_mode: vcs.VCSMode,
     vcs_status: ?vcs.VCSStatusResult,
 
+    // File Watching State (Phase 3 - US4)
+    file_watcher: ?*watcher.Watcher,
+    watch_debouncer: watcher.Debouncer,
+
     const Self = @This();
 
     // Use ClipboardOperation from file_ops module
@@ -154,6 +159,8 @@ pub const App = struct {
             .vcs_type = .none,
             .vcs_mode = .auto,
             .vcs_status = null,
+            .file_watcher = null,
+            .watch_debouncer = watcher.Debouncer.init(300), // 300ms debounce (T055)
         };
 
         self.tty = try vaxis.Tty.init(&self.tty_buf);
@@ -214,6 +221,10 @@ pub const App = struct {
         if (self.vcs_status) |*status| {
             status.deinit();
         }
+        // Free file watcher
+        if (self.file_watcher) |w| {
+            w.deinit();
+        }
         self.render_arena.deinit();
         self.allocator.destroy(self);
     }
@@ -254,6 +265,9 @@ pub const App = struct {
                     try self.vx.resize(self.allocator, writer, ws);
                 },
             }
+
+            // Poll file watcher for changes (T054)
+            try self.pollFileWatcher();
 
             // Render after each event
             try self.render(writer);
@@ -386,6 +400,7 @@ pub const App = struct {
             'r' => try self.enterRenameMode(),
             'a' => self.enterNewFileMode(),
             'A' => self.enterNewDirMode(),
+            'W' => self.toggleWatching(), // T056: Toggle file watching
             else => {},
         }
     }
@@ -1761,15 +1776,28 @@ pub const App = struct {
                             .style = .{ .fg = .{ .index = 6 }, .bold = true }, // cyan, bold
                         }, .{ .row_offset = row, .col_offset = 0 });
 
+                        var col_offset = path_result.col;
+
                         // Display VCS branch info after path (T023)
                         if (self.getVCSBranchDisplay(arena)) |branch_display| {
                             _ = win.printSegment(.{
                                 .text = " ",
-                            }, .{ .row_offset = row, .col_offset = path_result.col });
-                            _ = win.printSegment(.{
+                            }, .{ .row_offset = row, .col_offset = col_offset });
+                            const branch_result = win.printSegment(.{
                                 .text = branch_display,
                                 .style = .{ .fg = .{ .index = 3 } }, // yellow
-                            }, .{ .row_offset = row, .col_offset = path_result.col + 1 });
+                            }, .{ .row_offset = row, .col_offset = col_offset + 1 });
+                            col_offset = branch_result.col;
+                        }
+
+                        // Display [W] when watching is enabled (T057)
+                        if (self.file_watcher) |w| {
+                            if (w.isEnabled()) {
+                                _ = win.printSegment(.{
+                                    .text = " [W]",
+                                    .style = .{ .fg = .{ .index = 2 } }, // green
+                                }, .{ .row_offset = row, .col_offset = col_offset });
+                            }
                         }
                     }
                 }
@@ -1884,6 +1912,88 @@ pub const App = struct {
                 .style = .{ .fg = .{ .index = 8 } }, // dim
             }, .{ .row_offset = row, .col_offset = col });
         }
+    }
+
+    // ===== File Watching (Phase 3 - US4) =====
+
+    /// Poll file watcher for changes (T054, T055, T058, T059, T060)
+    fn pollFileWatcher(self: *Self) !void {
+        // Initialize watcher if needed (lazy init when file_tree is loaded)
+        if (self.file_watcher == null and self.file_tree != null) {
+            self.file_watcher = watcher.Watcher.init(self.allocator, self.file_tree.?.root_path) catch null;
+        }
+
+        const w = self.file_watcher orelse return;
+
+        // Poll for changes
+        if (w.poll()) {
+            // Watcher detected a change, use debouncer to coalesce rapid changes (T055)
+            if (self.watch_debouncer.recordEvent()) {
+                // Debounce passed, trigger refresh
+                try self.handleFileSystemChange();
+            }
+        } else if (self.watch_debouncer.checkPending()) {
+            // Handle pending debounced event
+            try self.handleFileSystemChange();
+        }
+    }
+
+    /// Handle file system change detected by watcher
+    fn handleFileSystemChange(self: *Self) !void {
+        // T059: Preserve cursor position on auto-refresh
+        // Save the current path at cursor position
+        var saved_path: ?[]const u8 = null;
+        if (self.file_tree) |ft| {
+            if (ft.visibleToActualIndex(self.cursor, self.show_hidden)) |idx| {
+                saved_path = try self.allocator.dupe(u8, ft.entries.items[idx].path);
+            }
+        }
+        defer if (saved_path) |p| self.allocator.free(p);
+
+        // Reload tree (T060: expanded_paths is preserved by reloadTree -> restoreExpandedState)
+        try self.reloadTree();
+
+        // T059: Restore cursor position if possible
+        if (saved_path) |path| {
+            if (self.file_tree) |ft| {
+                for (ft.entries.items, 0..) |entry, i| {
+                    if (std.mem.eql(u8, entry.path, path)) {
+                        if (ft.actualToVisibleIndex(i, self.show_hidden)) |visible_idx| {
+                            self.cursor = visible_idx;
+                            self.updateScrollOffset();
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        // T058: VCS status is refreshed by reloadTree() which calls refreshVCSStatus()
+        // Show status message for auto-refresh
+        self.status_message = "Auto-refreshed";
+    }
+
+    /// Toggle file watching (T056, T061)
+    fn toggleWatching(self: *Self) void {
+        // Initialize watcher if not exists
+        if (self.file_watcher == null and self.file_tree != null) {
+            self.file_watcher = watcher.Watcher.init(self.allocator, self.file_tree.?.root_path) catch {
+                self.status_message = "Failed to enable watching";
+                return;
+            };
+        }
+
+        const w = self.file_watcher orelse {
+            self.status_message = "Watching unavailable";
+            return;
+        };
+
+        const new_state = !w.isEnabled();
+        w.setEnabled(new_state);
+        self.watch_debouncer.reset();
+
+        // T061: Status message for watching toggle
+        self.status_message = if (new_state) "Watching enabled" else "Watching disabled";
     }
 
     // ===== VCS Integration (Phase 3 - US1) =====
