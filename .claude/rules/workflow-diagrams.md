@@ -1,6 +1,6 @@
 # Workflow Diagrams
 
-kaiu 開発ワークフローの Mermaid 図式。詳細は `workflow.md` を参照。
+kaiu 開発ワークフローの Mermaid 図式。詳細は `.claude/rules/workflow.md` を参照。
 
 ---
 

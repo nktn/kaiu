@@ -26,8 +26,9 @@ description: >
 # 最近のコミットを確認
 git log --oneline -10
 
-# 変更されたファイルを確認
-git diff main --stat
+# 変更されたファイルを確認 (origin/main と比較)
+git fetch origin main
+git diff origin/main...HEAD --stat
 ```
 
 ### Step 2: ドキュメント更新チェック
