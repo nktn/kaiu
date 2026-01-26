@@ -440,8 +440,7 @@ pub const App = struct {
 
     fn handlePreviewKey(self: *Self, key_char: u21) void {
         switch (key_char) {
-            'q' => self.should_quit = true,
-            'o', 'h' => self.closePreview(),
+            'q', 'o', 'h' => self.closePreview(),
             'j' => self.scrollPreviewDown(self.vx.window().height),
             'k' => if (self.preview_scroll > 0) {
                 self.preview_scroll -= 1;
@@ -798,15 +797,66 @@ pub const App = struct {
                 if (vaxis.zigimg.Image.fromFilePath(self.allocator, path, read_buffer)) |loaded_img_const| {
                     var loaded_img = loaded_img_const;
                     defer loaded_img.deinit();
-                    self.preview_image = self.vx.transmitImage(
-                        self.allocator,
-                        self.tty.writer(),
-                        &loaded_img,
-                        .rgba,
-                    ) catch |err| blk: {
-                        load_error = @errorName(err);
-                        break :blk null;
+
+                    // Calculate target size from terminal dimensions
+                    // Estimate ~10px per cell width, ~20px per cell height
+                    const win = self.vx.window();
+                    const max_width: u32 = @as(u32, @intCast(win.width)) * 10;
+                    const max_height: u32 = @as(u32, @intCast(win.height)) * 20;
+
+                    // Downsample large images for performance (#57)
+                    const maybe_downsampled = image.downsampleImage(self.allocator, &loaded_img, max_width, max_height) catch {
+                        load_error = "DownsampleOOM";
+                        break :kitty_load;
                     };
+
+                    if (maybe_downsampled) |downsampled| {
+                        defer downsampled.deinit(self.allocator);
+
+                        // Create a new zigimg.Image from downsampled pixels
+                        const pixel_bytes = std.mem.sliceAsBytes(downsampled.pixels);
+                        if (vaxis.zigimg.Image.fromRawPixels(
+                            self.allocator,
+                            downsampled.width,
+                            downsampled.height,
+                            pixel_bytes,
+                            .rgba32,
+                        )) |resized_img_const| {
+                            var resized_img = resized_img_const;
+                            defer resized_img.deinit();
+                            self.preview_image = self.vx.transmitImage(
+                                self.allocator,
+                                self.tty.writer(),
+                                &resized_img,
+                                .rgba,
+                            ) catch |err| blk: {
+                                load_error = @errorName(err);
+                                break :blk null;
+                            };
+                        } else |_| {
+                            // Fall back to original if resized image creation fails
+                            self.preview_image = self.vx.transmitImage(
+                                self.allocator,
+                                self.tty.writer(),
+                                &loaded_img,
+                                .rgba,
+                            ) catch |err| blk: {
+                                load_error = @errorName(err);
+                                break :blk null;
+                            };
+                        }
+                    } else {
+                        // No downsampling needed (image already small)
+                        self.preview_image = self.vx.transmitImage(
+                            self.allocator,
+                            self.tty.writer(),
+                            &loaded_img,
+                            .rgba,
+                        ) catch |err| blk: {
+                            load_error = @errorName(err);
+                            break :blk null;
+                        };
+                    }
                 } else |err| {
                     load_error = @errorName(err);
                 }

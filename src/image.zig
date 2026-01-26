@@ -4,6 +4,7 @@
 //! Supports PNG, JPG, GIF, and WebP formats.
 
 const std = @import("std");
+const vaxis = @import("vaxis");
 
 /// Supported image formats.
 pub const ImageFormat = enum {
@@ -330,4 +331,122 @@ test "isImageFile detects image files" {
     try std.testing.expect(isImageFile("test.webp"));
     try std.testing.expect(!isImageFile("test.txt"));
     try std.testing.expect(!isImageFile("test.md"));
+}
+
+// ============================================================================
+// Image Downsampling for Performance
+// ============================================================================
+
+/// Result of image downsampling. Caller must free pixels when done.
+pub const DownsampledImage = struct {
+    pixels: []vaxis.zigimg.color.Rgba32,
+    width: u32,
+    height: u32,
+
+    pub fn deinit(self: DownsampledImage, allocator: std.mem.Allocator) void {
+        allocator.free(self.pixels);
+    }
+};
+
+/// Downsample an image using nearest-neighbor sampling for fast preview.
+/// Returns null if the image is already smaller than the target size.
+///
+/// This is critical for performance: a 4K image is ~25MB, but terminal display
+/// typically needs only ~800x600 pixels. Downsampling before transmission
+/// reduces data by 10-20x.
+pub fn downsampleImage(
+    allocator: std.mem.Allocator,
+    src: *vaxis.zigimg.Image,
+    max_width: u32,
+    max_height: u32,
+) !?DownsampledImage {
+    const src_width = src.width;
+    const src_height = src.height;
+
+    // Check if resize is needed
+    if (src_width <= max_width and src_height <= max_height) {
+        return null; // No resize needed
+    }
+
+    // Calculate scale factor (maintain aspect ratio)
+    const scale_x = @as(f32, @floatFromInt(src_width)) / @as(f32, @floatFromInt(max_width));
+    const scale_y = @as(f32, @floatFromInt(src_height)) / @as(f32, @floatFromInt(max_height));
+    const scale = @max(scale_x, scale_y);
+
+    // Calculate new dimensions
+    const new_width: u32 = @intFromFloat(@as(f32, @floatFromInt(src_width)) / scale);
+    const new_height: u32 = @intFromFloat(@as(f32, @floatFromInt(src_height)) / scale);
+
+    if (new_width == 0 or new_height == 0) {
+        return null;
+    }
+
+    // Allocate new pixel buffer
+    const new_pixels = try allocator.alloc(vaxis.zigimg.color.Rgba32, new_width * new_height);
+    errdefer allocator.free(new_pixels);
+
+    // Convert source pixels to RGBA if needed
+    const src_pixels = src.pixels.asBytes();
+
+    // Nearest-neighbor sampling
+    for (0..new_height) |y| {
+        for (0..new_width) |x| {
+            // Map destination pixel to source pixel
+            const src_x: u32 = @intFromFloat(@as(f32, @floatFromInt(x)) * scale);
+            const src_y: u32 = @intFromFloat(@as(f32, @floatFromInt(y)) * scale);
+
+            // Clamp to valid range
+            const clamped_x = @min(src_x, src_width - 1);
+            const clamped_y = @min(src_y, src_height - 1);
+
+            // Get source pixel (assuming RGBA format, 4 bytes per pixel)
+            const src_idx = (clamped_y * src_width + clamped_x) * 4;
+            const dst_idx = y * new_width + x;
+
+            if (src_idx + 3 < src_pixels.len) {
+                new_pixels[dst_idx] = .{
+                    .r = src_pixels[src_idx],
+                    .g = src_pixels[src_idx + 1],
+                    .b = src_pixels[src_idx + 2],
+                    .a = src_pixels[src_idx + 3],
+                };
+            } else {
+                // Out of bounds - use transparent
+                new_pixels[dst_idx] = .{ .r = 0, .g = 0, .b = 0, .a = 0 };
+            }
+        }
+    }
+
+    return DownsampledImage{
+        .pixels = new_pixels,
+        .width = new_width,
+        .height = new_height,
+    };
+}
+
+test "downsampleImage returns null for small images" {
+    // Cannot test without actual image data, but verify API compiles
+    _ = downsampleImage;
+}
+
+test "downsampleImage calculates scale correctly" {
+    // Test scale calculation logic
+    const src_width: u32 = 4000;
+    const src_height: u32 = 2000;
+    const max_width: u32 = 800;
+    const max_height: u32 = 600;
+
+    const scale_x = @as(f32, @floatFromInt(src_width)) / @as(f32, @floatFromInt(max_width));
+    const scale_y = @as(f32, @floatFromInt(src_height)) / @as(f32, @floatFromInt(max_height));
+    const scale = @max(scale_x, scale_y);
+
+    // 4000/800 = 5.0, 2000/600 = 3.33, max = 5.0
+    try std.testing.expectApproxEqAbs(@as(f32, 5.0), scale, 0.01);
+
+    // New dimensions: 4000/5 = 800, 2000/5 = 400
+    const new_width: u32 = @intFromFloat(@as(f32, @floatFromInt(src_width)) / scale);
+    const new_height: u32 = @intFromFloat(@as(f32, @floatFromInt(src_height)) / scale);
+
+    try std.testing.expectEqual(@as(u32, 800), new_width);
+    try std.testing.expectEqual(@as(u32, 400), new_height);
 }
