@@ -303,7 +303,13 @@ pub const App = struct {
                     self.is_pasting = false;
                     // Only treat as file drop in tree_view mode
                     if (self.mode == .tree_view) {
-                        try self.handlePastedContent(self.paste_buffer.items);
+                        // Handle paste errors gracefully instead of terminating event loop
+                        self.handlePastedContent(self.paste_buffer.items) catch |err| {
+                            self.status_message = switch (err) {
+                                error.OutOfMemory => "Drop failed: out of memory",
+                                else => "Drop failed",
+                            };
+                        };
                     }
                     self.paste_buffer.clearRetainingCapacity();
                 },
@@ -2200,6 +2206,7 @@ pub const App = struct {
     }
 
     /// Split a string by unescaped spaces (backslash-escaped spaces are kept)
+    /// Only treats "\ " and "\\" as escape sequences (matches unescapePath behavior)
     fn splitByUnescapedSpace(self: *Self, input: []const u8) !std.ArrayList([]const u8) {
         var result: std.ArrayList([]const u8) = .empty;
         var start: usize = 0;
@@ -2207,8 +2214,14 @@ pub const App = struct {
 
         while (i < input.len) {
             if (input[i] == '\\' and i + 1 < input.len) {
-                // Skip escaped character
-                i += 2;
+                const next = input[i + 1];
+                if (next == ' ' or next == '\\') {
+                    // Skip escaped space or backslash
+                    i += 2;
+                } else {
+                    // Other backslash - not an escape, advance by 1
+                    i += 1;
+                }
             } else if (input[i] == ' ') {
                 // Unescaped space - split here
                 if (i > start) {
@@ -2232,12 +2245,16 @@ pub const App = struct {
     /// Process a single drop path - decode, unescape, validate, and add to paths list
     fn processDropPath(self: *Self, paths: *std.ArrayList([]const u8), trimmed: []const u8) !void {
         // Strip file:// prefix if present (some terminals use URI format)
-        // Also handle file://localhost/... format
+        // Only accept file:///path (empty host) and file://localhost/path
+        // Reject file://otherhost/path to prevent unintended local copies
         const without_prefix = blk: {
             if (std.mem.startsWith(u8, trimmed, "file://localhost/")) {
                 break :blk trimmed[16..]; // "file://localhost" = 16 chars, keep the /
+            } else if (std.mem.startsWith(u8, trimmed, "file:///")) {
+                break :blk trimmed[7..]; // "file://" = 7 chars, keep the /
             } else if (std.mem.startsWith(u8, trimmed, "file://")) {
-                break :blk trimmed[7..];
+                // Reject file://otherhost/... - non-local host
+                return;
             } else {
                 break :blk trimmed;
             }
