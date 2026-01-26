@@ -798,11 +798,19 @@ pub const App = struct {
                     var loaded_img = loaded_img_const;
                     defer loaded_img.deinit();
 
+                    // Convert to RGBA32 format before downsampling (Codex review fix)
+                    // This ensures consistent pixel format regardless of source image type
+                    loaded_img.convert(.rgba32) catch {
+                        load_error = "ConvertRGBA";
+                        break :kitty_load;
+                    };
+
                     // Calculate target size from terminal dimensions
                     // Estimate ~10px per cell width, ~20px per cell height
                     const win = self.vx.window();
-                    const max_width: u32 = @as(u32, @intCast(win.width)) * 10;
-                    const max_height: u32 = @as(u32, @intCast(win.height)) * 20;
+                    // Clamp to at least 1 to avoid division by zero (Codex review fix)
+                    const max_width: u32 = @max(1, @as(u32, @intCast(win.width)) * 10);
+                    const max_height: u32 = @max(1, @as(u32, @intCast(win.height)) * 20);
 
                     // Downsample large images for performance (#57)
                     const maybe_downsampled = image.downsampleImage(self.allocator, &loaded_img, max_width, max_height) catch {
