@@ -103,14 +103,15 @@ stateDiagram-v2
 
 ```zig
 pub const AppMode = enum {
-    tree_view,       // Main mode - file tree navigation
-    preview,         // Full-screen file preview
-    search,          // Incremental search mode
-    rename,          // Rename file/directory
-    new_file,        // Create new file
-    new_dir,         // Create new directory
-    confirm_delete,  // Delete confirmation
-    help,            // Help overlay
+    tree_view,         // Main mode - file tree navigation
+    preview,           // Full-screen file preview
+    search,            // Incremental search mode
+    rename,            // Rename file/directory
+    new_file,          // Create new file
+    new_dir,           // Create new directory
+    confirm_delete,    // Delete confirmation
+    confirm_overwrite, // Drop filename conflict confirmation (US3)
+    help,              // Help overlay
 };
 ```
 

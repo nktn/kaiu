@@ -2092,9 +2092,19 @@ pub const App = struct {
             const trimmed = std.mem.trim(u8, line, " \t");
             if (trimmed.len == 0) continue;
 
+            // Strip file:// prefix if present (some terminals use URI format)
+            const without_prefix = if (std.mem.startsWith(u8, trimmed, "file://"))
+                trimmed[7..]
+            else
+                trimmed;
+
+            // URL decode (e.g., %20 -> space)
+            const url_decoded = self.urlDecodePath(without_prefix) catch continue;
+            defer if (url_decoded.ptr != without_prefix.ptr) self.allocator.free(url_decoded);
+
             // Unescape backslash-escaped characters (Finder uses "\ " for spaces)
-            const unescaped = self.unescapePath(trimmed) catch continue;
-            defer if (unescaped.ptr != trimmed.ptr) self.allocator.free(unescaped);
+            const unescaped = self.unescapePath(url_decoded) catch continue;
+            defer if (unescaped.ptr != url_decoded.ptr) self.allocator.free(unescaped);
 
             // Check if this looks like a file path
             if (self.isValidFilePath(unescaped)) {
@@ -2115,6 +2125,33 @@ pub const App = struct {
 
         // Handle as file drop
         try self.handleFileDrop(paths.items);
+    }
+
+    /// URL decode path (e.g., %20 -> space, %2F -> /)
+    fn urlDecodePath(self: *Self, path: []const u8) ![]const u8 {
+        // Check if we need to decode
+        if (std.mem.indexOf(u8, path, "%") == null) return path;
+
+        // Allocate and decode
+        var result = try self.allocator.alloc(u8, path.len);
+        var out_idx: usize = 0;
+        var i: usize = 0;
+        while (i < path.len) {
+            if (path[i] == '%' and i + 2 < path.len) {
+                // Try to parse hex digits
+                const hex = path[i + 1 .. i + 3];
+                if (std.fmt.parseInt(u8, hex, 16)) |byte| {
+                    result[out_idx] = byte;
+                    out_idx += 1;
+                    i += 3;
+                    continue;
+                } else |_| {}
+            }
+            result[out_idx] = path[i];
+            out_idx += 1;
+            i += 1;
+        }
+        return self.allocator.realloc(result, out_idx) catch result[0..out_idx];
     }
 
     /// Unescape backslash-escaped characters in path (e.g., "\ " -> " ")
@@ -2208,7 +2245,10 @@ pub const App = struct {
             const filename = std.fs.path.basename(expanded);
 
             // Generate destination path with conflict resolution (T043, T044a)
-            const final_dest = try self.resolveDropConflict(dest_dir, filename);
+            const final_dest = self.resolveDropConflict(dest_dir, filename) catch {
+                // Too many conflicts or allocation error - skip this file
+                continue;
+            };
             defer self.allocator.free(final_dest);
 
             // Copy the file/directory (T040, T041)
