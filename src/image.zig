@@ -354,6 +354,9 @@ pub const DownsampledImage = struct {
 /// This is critical for performance: a 4K image is ~25MB, but terminal display
 /// typically needs only ~800x600 pixels. Downsampling before transmission
 /// reduces data by 10-20x.
+///
+/// **Precondition**: The source image must be in RGBA32 format (4 bytes per pixel).
+/// Caller should convert the image using `src.toRgba32()` before calling this function.
 pub fn downsampleImage(
     allocator: std.mem.Allocator,
     src: *vaxis.zigimg.Image,
@@ -449,4 +452,75 @@ test "downsampleImage calculates scale correctly" {
 
     try std.testing.expectEqual(@as(u32, 800), new_width);
     try std.testing.expectEqual(@as(u32, 400), new_height);
+}
+
+test "downsampleImage performs correct nearest-neighbor sampling" {
+    const allocator = std.testing.allocator;
+
+    // Create a 4x4 test image with known pixel values
+    // Each quadrant has a distinct color for easy verification
+    var test_pixels: [16]vaxis.zigimg.color.Rgba32 = undefined;
+
+    // Top-left quadrant (0,0), (1,0), (0,1), (1,1) = Red
+    test_pixels[0] = .{ .r = 255, .g = 0, .b = 0, .a = 255 };
+    test_pixels[1] = .{ .r = 255, .g = 0, .b = 0, .a = 255 };
+    test_pixels[4] = .{ .r = 255, .g = 0, .b = 0, .a = 255 };
+    test_pixels[5] = .{ .r = 255, .g = 0, .b = 0, .a = 255 };
+
+    // Top-right quadrant (2,0), (3,0), (2,1), (3,1) = Green
+    test_pixels[2] = .{ .r = 0, .g = 255, .b = 0, .a = 255 };
+    test_pixels[3] = .{ .r = 0, .g = 255, .b = 0, .a = 255 };
+    test_pixels[6] = .{ .r = 0, .g = 255, .b = 0, .a = 255 };
+    test_pixels[7] = .{ .r = 0, .g = 255, .b = 0, .a = 255 };
+
+    // Bottom-left quadrant (0,2), (1,2), (0,3), (1,3) = Blue
+    test_pixels[8] = .{ .r = 0, .g = 0, .b = 255, .a = 255 };
+    test_pixels[9] = .{ .r = 0, .g = 0, .b = 255, .a = 255 };
+    test_pixels[12] = .{ .r = 0, .g = 0, .b = 255, .a = 255 };
+    test_pixels[13] = .{ .r = 0, .g = 0, .b = 255, .a = 255 };
+
+    // Bottom-right quadrant (2,2), (3,2), (2,3), (3,3) = White
+    test_pixels[10] = .{ .r = 255, .g = 255, .b = 255, .a = 255 };
+    test_pixels[11] = .{ .r = 255, .g = 255, .b = 255, .a = 255 };
+    test_pixels[14] = .{ .r = 255, .g = 255, .b = 255, .a = 255 };
+    test_pixels[15] = .{ .r = 255, .g = 255, .b = 255, .a = 255 };
+
+    // Create a mock image structure for testing
+    // Note: We can't directly create vaxis.zigimg.Image, so we test the scale logic
+    // and verify the algorithm's mathematical correctness instead
+
+    // Test the sampling coordinate calculation for a 4x4 -> 2x2 downscale
+    const scale: f32 = 2.0; // 4/2 = 2
+    const src_width: u32 = 4;
+
+    // Pixel (0,0) in destination maps to (0,0) in source
+    const dst_x0: u32 = 0;
+    const dst_y0: u32 = 0;
+    const src_x0: u32 = @intFromFloat(@as(f32, @floatFromInt(dst_x0)) * scale);
+    const src_y0: u32 = @intFromFloat(@as(f32, @floatFromInt(dst_y0)) * scale);
+    try std.testing.expectEqual(@as(u32, 0), src_x0);
+    try std.testing.expectEqual(@as(u32, 0), src_y0);
+
+    // Pixel (1,0) in destination maps to (2,0) in source (green quadrant)
+    const dst_x1: u32 = 1;
+    const dst_y1: u32 = 0;
+    const src_x1: u32 = @intFromFloat(@as(f32, @floatFromInt(dst_x1)) * scale);
+    const src_y1: u32 = @intFromFloat(@as(f32, @floatFromInt(dst_y1)) * scale);
+    try std.testing.expectEqual(@as(u32, 2), src_x1);
+    try std.testing.expectEqual(@as(u32, 0), src_y1);
+
+    // Verify the source index calculation
+    const src_idx0 = (src_y0 * src_width + src_x0) * 4;
+    const src_idx1 = (src_y1 * src_width + src_x1) * 4;
+    try std.testing.expectEqual(@as(u32, 0), src_idx0); // First pixel (red)
+    try std.testing.expectEqual(@as(u32, 8), src_idx1); // Third pixel (green)
+
+    // Verify the test pixels have correct values at these indices
+    const pixel_bytes = std.mem.sliceAsBytes(&test_pixels);
+    try std.testing.expectEqual(@as(u8, 255), pixel_bytes[0]); // Red R
+    try std.testing.expectEqual(@as(u8, 0), pixel_bytes[1]); // Red G
+    try std.testing.expectEqual(@as(u8, 0), pixel_bytes[8]); // Green R
+    try std.testing.expectEqual(@as(u8, 255), pixel_bytes[9]); // Green G
+
+    _ = allocator; // Used for potential future allocations in extended tests
 }

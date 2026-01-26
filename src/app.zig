@@ -771,6 +771,26 @@ pub const App = struct {
         // Get image dimensions (T031)
         self.preview_image_dims = image.getImageDimensions(path);
 
+        // Show "Loading..." for large images before loading
+        // Use u64 to avoid overflow for large images (e.g., 8K = 7680x4320)
+        const is_large_image = if (self.preview_image_dims) |dims|
+            @as(u64, dims.width) * @as(u64, dims.height) > 1920 * 1080 // > Full HD
+        else
+            false;
+
+        if (is_large_image) {
+            // Show loading message and render immediately
+            self.preview_content = try self.allocator.dupe(u8, "[Loading image...]");
+            self.preview_scroll = 0;
+            self.mode = .preview;
+            try self.render(self.tty.writer());
+            // Clear for actual image load
+            if (self.preview_content) |content| {
+                self.allocator.free(content);
+                self.preview_content = null;
+            }
+        }
+
         // Try to load image using Kitty Graphics Protocol
         // Note: Force enable on Ghostty since libvaxis may not detect it correctly
         const is_ghostty = if (std.posix.getenv("TERM_PROGRAM")) |tp|
@@ -1986,7 +2006,7 @@ pub const App = struct {
             .new_dir => "Enter:create  Esc:cancel",
             .confirm_delete => "y:confirm  n/Esc:cancel",
             .confirm_overwrite => "o:overwrite  r:rename  Esc:cancel",
-            .preview => "j/k:scroll  o:close  q:quit",
+            .preview => "j/k:scroll  q/o/h:close",
             .help => "",
         };
 
