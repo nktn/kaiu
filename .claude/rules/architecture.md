@@ -118,11 +118,15 @@ pub const AppMode = enum {
 
 ```
 src/
-├── main.zig      # Entry point, CLI args, path validation (~174 lines)
-├── app.zig       # App state, event loop, state machine (~1887 lines)
-├── file_ops.zig  # File operations, path utilities (~390 lines)
-├── tree.zig      # FileTree data structure (~370 lines)
-└── ui.zig        # libvaxis rendering, highlighting (~463 lines)
+├── main.zig      # Entry point, CLI args, path validation
+├── app.zig       # App state, event loop, state machine
+├── file_ops.zig  # File operations, path utilities
+├── tree.zig      # FileTree data structure
+├── ui.zig        # libvaxis rendering, highlighting
+├── vcs.zig       # VCS integration (Git/JJ status)
+├── image.zig     # Image format detection and dimensions
+├── watcher.zig   # File system watching (mtime polling)
+└── kitty_gfx.zig # Kitty Graphics Protocol for image display
 ```
 
 ### Module Responsibilities
@@ -134,6 +138,10 @@ src/
 | file_ops.zig | ファイル・ディレクトリ操作 (copy/delete)、パス表示フォーマット、バリデーション、Base64エンコード |
 | tree.zig | FileTree構造、展開/折りたたみ、可視インデックス変換 |
 | ui.zig | レンダリング、検索ハイライト、ヘルプ表示、サニタイズ |
+| vcs.zig | VCS検出、Git/JJステータス取得、ステータスマッピング |
+| image.zig | 画像フォーマット検出、寸法抽出、マジックバイト検証 |
+| watcher.zig | ファイルシステム監視、mtimeポーリング、デバウンス |
+| kitty_gfx.zig | Kitty Graphics Protocol、RGBA送信、画像プレビュー |
 
 ## Memory Strategy
 
@@ -264,10 +272,14 @@ pub const App = struct {
 | 1000+ | 要分割 | モジュール分割を実施 |
 
 **現在のファイルサイズ**:
-- app.zig: ~1887行 (凝集度を保ちつつ、file_ops.zig を抽出済み)
+- app.zig: ~2000行 (Phase 3 機能追加後、凝集度を保ちつつ外部統合コードを含む)
 - file_ops.zig: ~390行 (適正 - App非依存のファイル操作)
 - tree.zig: ~370行 (適正)
-- ui.zig: ~463行 (適正)
+- ui.zig: ~700行 (適正 - VCS色表示、画像プレビュー含む)
+- vcs.zig: ~450行 (適正 - Git/JJステータス検出)
+- image.zig: ~334行 (適正 - 画像フォーマット検出)
+- watcher.zig: ~209行 (適正 - ファイルシステム監視)
+- kitty_gfx.zig: ~150行 (適正 - Kitty Graphics Protocol)
 - main.zig: ~174行 (適正)
 
 **重要**: 凝集度（関連する機能がまとまっている）を行数より優先する。
@@ -469,6 +481,20 @@ CLI arg     main.zig              FileTree            Status Bar
 - Search/Preview 機能: App state に強く依存 (mode, cursor, scroll など)
 - 抽出すると凝集度が下がる
 **Note**: Phase 2 評価で search.zig / preview.zig への分割は見送り
+
+### [2026-01-26] Phase 3 外部統合モジュール群
+**Context**: VCS統合、画像プレビュー、ファイル監視機能を追加
+**Decision**: 機能ごとに独立モジュールを作成 (vcs.zig, image.zig, watcher.zig, kitty_gfx.zig)
+**Rationale**:
+- **責務分離**: 各機能が明確に分離され、単独テスト可能
+- **依存性管理**: App state への依存を最小化
+- **再利用性**: 他プロジェクトへの移植が容易
+**Implementation Patterns**:
+- **VCS統合**: Git/JJ両対応、タイムアウト付きコマンド実行、ゾンビプロセス回避パターン
+- **画像処理**: マジックバイト検証、フォーマット別パース、寸法抽出
+- **ファイル監視**: mtimeポーリング、デバウンス、クロスプラットフォーム対応
+- **Kitty Graphics**: RGBA送信、Ghostty検出、フォールバック実装
+**Rationale**: See `.claude/skills/learned/kitty-graphics-rgba-transmit.md`, `.claude/skills/learned/ghostty-terminal-detection.md`, `.claude/skills/learned/mtime-polling-file-watch.md`
 
 ---
 
