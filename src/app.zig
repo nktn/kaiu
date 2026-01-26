@@ -2172,7 +2172,7 @@ pub const App = struct {
         var iter = std.mem.tokenizeAny(u8, content, "\n\r");
         while (iter.next()) |line| {
             // Split line by unescaped spaces (Finder sends "path1 path2" for multi-file)
-            var line_paths = self.splitByUnescapedSpace(line);
+            var line_paths = try self.splitByUnescapedSpace(line);
             defer line_paths.deinit(self.allocator);
 
             for (line_paths.items) |segment| {
@@ -2184,9 +2184,14 @@ pub const App = struct {
         }
 
         if (paths.items.len == 0) {
-            // No valid file paths found - show what we received
+            // No valid file paths found - show sanitized version of what we received
             const show_len = @min(content.len, 40);
-            self.status_message = std.fmt.bufPrint(&self.status_message_buf, "no paths in: '{s}'", .{content[0..show_len]}) catch "no valid paths";
+            // Sanitize control characters to prevent terminal escape injection
+            var sanitized: [40]u8 = undefined;
+            for (content[0..show_len], 0..) |c, idx| {
+                sanitized[idx] = if (c < 0x20 or c == 0x7F) '?' else c;
+            }
+            self.status_message = std.fmt.bufPrint(&self.status_message_buf, "no paths in: '{s}'", .{sanitized[0..show_len]}) catch "no valid paths";
             return;
         }
 
@@ -2195,7 +2200,7 @@ pub const App = struct {
     }
 
     /// Split a string by unescaped spaces (backslash-escaped spaces are kept)
-    fn splitByUnescapedSpace(self: *Self, input: []const u8) std.ArrayList([]const u8) {
+    fn splitByUnescapedSpace(self: *Self, input: []const u8) !std.ArrayList([]const u8) {
         var result: std.ArrayList([]const u8) = .empty;
         var start: usize = 0;
         var i: usize = 0;
@@ -2207,7 +2212,7 @@ pub const App = struct {
             } else if (input[i] == ' ') {
                 // Unescaped space - split here
                 if (i > start) {
-                    result.append(self.allocator, input[start..i]) catch {};
+                    try result.append(self.allocator, input[start..i]);
                 }
                 start = i + 1;
                 i += 1;
@@ -2218,7 +2223,7 @@ pub const App = struct {
 
         // Add remaining segment
         if (start < input.len) {
-            result.append(self.allocator, input[start..]) catch {};
+            try result.append(self.allocator, input[start..]);
         }
 
         return result;
@@ -2283,27 +2288,39 @@ pub const App = struct {
         return self.allocator.realloc(result, out_idx) catch result[0..out_idx];
     }
 
-    /// Unescape backslash-escaped characters in path (e.g., "\ " -> " ")
+    /// Unescape backslash-escaped spaces in path (e.g., "\ " -> " ")
+    /// Only unescapes "\ " (Finder's space escape) and "\\" (literal backslash)
+    /// Other backslash sequences are kept as-is to preserve literal backslashes in filenames
     fn unescapePath(self: *Self, path: []const u8) ![]const u8 {
-        // Count if we need to unescape
+        // Count if we need to unescape (look for "\ " or "\\")
         var has_escape = false;
-        for (path) |c| {
-            if (c == '\\') {
-                has_escape = true;
-                break;
+        var i: usize = 0;
+        while (i < path.len) : (i += 1) {
+            if (path[i] == '\\' and i + 1 < path.len) {
+                const next = path[i + 1];
+                if (next == ' ' or next == '\\') {
+                    has_escape = true;
+                    break;
+                }
             }
         }
         if (!has_escape) return path;
 
-        // Allocate and unescape
+        // Allocate and unescape only "\ " and "\\"
         var result = try self.allocator.alloc(u8, path.len);
         var out_idx: usize = 0;
-        var i: usize = 0;
+        i = 0;
         while (i < path.len) : (i += 1) {
             if (path[i] == '\\' and i + 1 < path.len) {
-                // Skip backslash, keep next character
-                i += 1;
-                result[out_idx] = path[i];
+                const next = path[i + 1];
+                if (next == ' ' or next == '\\') {
+                    // Skip backslash, keep the escaped character
+                    i += 1;
+                    result[out_idx] = path[i];
+                } else {
+                    // Keep other backslash sequences as-is
+                    result[out_idx] = path[i];
+                }
             } else {
                 result[out_idx] = path[i];
             }
