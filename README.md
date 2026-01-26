@@ -84,6 +84,13 @@ kaiu ~/.config    # Tilde expansion supported
 | `a` | Create new file in current directory |
 | `A` | Create new directory in current directory |
 
+### VCS & External Tools
+
+| Key | Action |
+|-----|--------|
+| `gv` | Cycle VCS mode (Auto → JJ → Git → Auto) |
+| `W` | Toggle file watching (auto-refresh on external changes) |
+
 ### Other
 
 | Key | Action |
@@ -91,8 +98,6 @@ kaiu ~/.config    # Tilde expansion supported
 | `o` | Toggle file preview |
 | `c` | Copy full path to clipboard |
 | `C` | Copy filename to clipboard |
-| `gv` | Cycle VCS mode (Auto → JJ → Git → Auto) |
-| `W` | Toggle file watching |
 | `?` | Show help |
 | `q` | Quit |
 
@@ -107,7 +112,8 @@ src/
 ├── ui.zig       # libvaxis rendering, search highlighting
 ├── vcs.zig      # VCS integration (Git/JJ status detection)
 ├── image.zig    # Image format detection and dimensions
-└── watcher.zig  # File system watching (mtime polling)
+├── watcher.zig  # File system watching (mtime polling)
+└── kitty_gfx.zig # Kitty Graphics Protocol for image display
 ```
 
 ## Architecture
