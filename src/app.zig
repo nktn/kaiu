@@ -273,8 +273,15 @@ pub const App = struct {
                 .key_press => |key| {
                     if (self.is_pasting) {
                         // Buffer keystrokes during paste (US3)
-                        if (key.codepoint < 128) {
-                            try self.paste_buffer.append(self.allocator, @intCast(key.codepoint));
+                        // Encode codepoint as UTF-8 to support non-ASCII characters
+                        // Note: Japanese filenames may not work due to libvaxis bracketed paste limitation
+                        if (key.codepoint > 0 and key.codepoint <= 0x10FFFF) {
+                            var utf8_buf: [4]u8 = undefined;
+                            const codepoint: u21 = @intCast(key.codepoint);
+                            const len = std.unicode.utf8Encode(codepoint, &utf8_buf) catch 0;
+                            if (len > 0) {
+                                try self.paste_buffer.appendSlice(self.allocator, utf8_buf[0..len]);
+                            }
                         }
                     } else {
                         try self.handleKey(key);
@@ -294,7 +301,16 @@ pub const App = struct {
                 .paste_end => {
                     // End of paste - process the content (US3)
                     self.is_pasting = false;
-                    try self.handlePastedContent(self.paste_buffer.items);
+                    // Only treat as file drop in tree_view mode
+                    if (self.mode == .tree_view) {
+                        // Handle paste errors gracefully instead of terminating event loop
+                        self.handlePastedContent(self.paste_buffer.items) catch |err| {
+                            self.status_message = switch (err) {
+                                error.OutOfMemory => "Drop failed: out of memory",
+                                else => "Drop failed",
+                            };
+                        };
+                    }
                     self.paste_buffer.clearRetainingCapacity();
                 },
             }
@@ -2150,24 +2166,38 @@ pub const App = struct {
     fn handlePastedContent(self: *Self, content: []const u8) !void {
         if (content.len == 0) return;
 
-        // Parse paths (may be multiple, separated by newlines or spaces)
+        // Parse paths (may be multiple, separated by newlines)
         var paths: std.ArrayList([]const u8) = .empty;
-        defer paths.deinit(self.allocator);
+        defer {
+            for (paths.items) |p| self.allocator.free(p);
+            paths.deinit(self.allocator);
+        }
 
         // Try to extract file paths from the pasted content
+        // First split by newlines, then by unescaped spaces (for multi-file drops)
         var iter = std.mem.tokenizeAny(u8, content, "\n\r");
         while (iter.next()) |line| {
-            const trimmed = std.mem.trim(u8, line, " \t");
-            if (trimmed.len == 0) continue;
+            // Split line by unescaped spaces (Finder sends "path1 path2" for multi-file)
+            var line_paths = try self.splitByUnescapedSpace(line);
+            defer line_paths.deinit(self.allocator);
 
-            // Check if this looks like a file path
-            if (self.isValidFilePath(trimmed)) {
-                try paths.append(self.allocator, trimmed);
+            for (line_paths.items) |segment| {
+                const trimmed = std.mem.trim(u8, segment, " \t");
+                if (trimmed.len == 0) continue;
+
+                try self.processDropPath(&paths, trimmed);
             }
         }
 
         if (paths.items.len == 0) {
-            // No valid file paths found - this is just regular paste, ignore
+            // No valid file paths found - show sanitized version of what we received
+            const show_len = @min(content.len, 40);
+            // Sanitize control characters to prevent terminal escape injection
+            var sanitized: [40]u8 = undefined;
+            for (content[0..show_len], 0..) |c, idx| {
+                sanitized[idx] = if (c < 0x20 or c == 0x7F) '?' else c;
+            }
+            self.status_message = std.fmt.bufPrint(&self.status_message_buf, "no paths in: '{s}'", .{sanitized[0..show_len]}) catch "no valid paths";
             return;
         }
 
@@ -2175,9 +2205,149 @@ pub const App = struct {
         try self.handleFileDrop(paths.items);
     }
 
+    /// Split a string by unescaped spaces (backslash-escaped spaces are kept)
+    /// Only treats "\ " and "\\" as escape sequences (matches unescapePath behavior)
+    fn splitByUnescapedSpace(self: *Self, input: []const u8) !std.ArrayList([]const u8) {
+        var result: std.ArrayList([]const u8) = .empty;
+        var start: usize = 0;
+        var i: usize = 0;
+
+        while (i < input.len) {
+            if (input[i] == '\\' and i + 1 < input.len) {
+                const next = input[i + 1];
+                if (next == ' ' or next == '\\') {
+                    // Skip escaped space or backslash
+                    i += 2;
+                } else {
+                    // Other backslash - not an escape, advance by 1
+                    i += 1;
+                }
+            } else if (input[i] == ' ') {
+                // Unescaped space - split here
+                if (i > start) {
+                    try result.append(self.allocator, input[start..i]);
+                }
+                start = i + 1;
+                i += 1;
+            } else {
+                i += 1;
+            }
+        }
+
+        // Add remaining segment
+        if (start < input.len) {
+            try result.append(self.allocator, input[start..]);
+        }
+
+        return result;
+    }
+
+    /// Process a single drop path - decode, unescape, validate, and add to paths list
+    fn processDropPath(self: *Self, paths: *std.ArrayList([]const u8), trimmed: []const u8) !void {
+        // Strip file:// prefix if present (some terminals use URI format)
+        // Only accept file:///path (empty host) and file://localhost/path
+        // Reject file://otherhost/path to prevent unintended local copies
+        const without_prefix = blk: {
+            if (std.mem.startsWith(u8, trimmed, "file://localhost/")) {
+                break :blk trimmed[16..]; // "file://localhost" = 16 chars, keep the /
+            } else if (std.mem.startsWith(u8, trimmed, "file:///")) {
+                break :blk trimmed[7..]; // "file://" = 7 chars, keep the /
+            } else if (std.mem.startsWith(u8, trimmed, "file://")) {
+                // Reject file://otherhost/... - non-local host
+                return;
+            } else {
+                break :blk trimmed;
+            }
+        };
+
+        // URL decode (e.g., %20 -> space)
+        const url_decoded = self.urlDecodePath(without_prefix) catch return;
+        defer if (url_decoded.ptr != without_prefix.ptr) self.allocator.free(url_decoded);
+
+        // Unescape backslash-escaped characters (Finder uses "\ " for spaces)
+        const unescaped = self.unescapePath(url_decoded) catch return;
+        defer if (unescaped.ptr != url_decoded.ptr) self.allocator.free(unescaped);
+
+        // Check if this looks like a file path
+        if (self.isValidFilePath(unescaped)) {
+            const path_copy = self.allocator.dupe(u8, unescaped) catch return;
+            paths.append(self.allocator, path_copy) catch {
+                self.allocator.free(path_copy);
+                return;
+            };
+        }
+    }
+
+    /// URL decode path (e.g., %20 -> space, %2F -> /)
+    fn urlDecodePath(self: *Self, path: []const u8) ![]const u8 {
+        // Check if we need to decode
+        if (std.mem.indexOf(u8, path, "%") == null) return path;
+
+        // Allocate and decode
+        var result = try self.allocator.alloc(u8, path.len);
+        var out_idx: usize = 0;
+        var i: usize = 0;
+        while (i < path.len) {
+            if (path[i] == '%' and i + 2 < path.len) {
+                // Try to parse hex digits
+                const hex = path[i + 1 .. i + 3];
+                if (std.fmt.parseInt(u8, hex, 16)) |byte| {
+                    result[out_idx] = byte;
+                    out_idx += 1;
+                    i += 3;
+                    continue;
+                } else |_| {}
+            }
+            result[out_idx] = path[i];
+            out_idx += 1;
+            i += 1;
+        }
+        return self.allocator.realloc(result, out_idx) catch result[0..out_idx];
+    }
+
+    /// Unescape backslash-escaped spaces in path (e.g., "\ " -> " ")
+    /// Only unescapes "\ " (Finder's space escape) and "\\" (literal backslash)
+    /// Other backslash sequences are kept as-is to preserve literal backslashes in filenames
+    fn unescapePath(self: *Self, path: []const u8) ![]const u8 {
+        // Count if we need to unescape (look for "\ " or "\\")
+        var has_escape = false;
+        var i: usize = 0;
+        while (i < path.len) : (i += 1) {
+            if (path[i] == '\\' and i + 1 < path.len) {
+                const next = path[i + 1];
+                if (next == ' ' or next == '\\') {
+                    has_escape = true;
+                    break;
+                }
+            }
+        }
+        if (!has_escape) return path;
+
+        // Allocate and unescape only "\ " and "\\"
+        var result = try self.allocator.alloc(u8, path.len);
+        var out_idx: usize = 0;
+        i = 0;
+        while (i < path.len) : (i += 1) {
+            if (path[i] == '\\' and i + 1 < path.len) {
+                const next = path[i + 1];
+                if (next == ' ' or next == '\\') {
+                    // Skip backslash, keep the escaped character
+                    i += 1;
+                    result[out_idx] = path[i];
+                } else {
+                    // Keep other backslash sequences as-is
+                    result[out_idx] = path[i];
+                }
+            } else {
+                result[out_idx] = path[i];
+            }
+            out_idx += 1;
+        }
+        return self.allocator.realloc(result, out_idx) catch result[0..out_idx];
+    }
+
     /// Check if a string looks like a valid file path that exists (T039)
-    fn isValidFilePath(self: *Self, path: []const u8) bool {
-        _ = self;
+    fn isValidFilePath(_: *Self, path: []const u8) bool {
         // Must start with / (absolute path) or ~ (home-relative)
         if (path.len == 0) return false;
         if (path[0] != '/' and path[0] != '~') return false;
@@ -2199,10 +2369,26 @@ pub const App = struct {
         return true;
     }
 
-    /// Handle file drop - copy files to current directory (T040, T041, T042, T046, T047)
+    /// Handle file drop - copy files to cursor directory or root (T040, T041, T042, T046, T047)
     fn handleFileDrop(self: *Self, paths: []const []const u8) !void {
         const ft = self.file_tree orelse return;
-        const dest_dir = self.getCurrentDirectory(ft);
+
+        // Determine destination: use cursor position directory
+        const dest_dir = blk: {
+            // If cursor is on a valid entry, use its directory
+            if (ft.visibleToActualIndex(self.cursor, self.show_hidden)) |actual_idx| {
+                if (actual_idx < ft.entries.items.len) {
+                    const entry = &ft.entries.items[actual_idx];
+                    if (entry.kind == .directory) {
+                        break :blk entry.path;
+                    } else {
+                        // For files, use parent directory
+                        break :blk std.fs.path.dirname(entry.path) orelse ft.root_path;
+                    }
+                }
+            }
+            break :blk ft.root_path;
+        };
 
         var success_count: usize = 0;
         const total_count: usize = paths.len;
@@ -2222,11 +2408,16 @@ pub const App = struct {
             const filename = std.fs.path.basename(expanded);
 
             // Generate destination path with conflict resolution (T043, T044a)
-            const final_dest = try self.resolveDropConflict(dest_dir, filename);
+            const final_dest = self.resolveDropConflict(dest_dir, filename) catch {
+                // Too many conflicts or allocation error - skip this file
+                continue;
+            };
             defer self.allocator.free(final_dest);
 
             // Copy the file/directory (T040, T041)
-            self.copyPath(expanded, final_dest) catch continue;
+            self.copyPath(expanded, final_dest) catch {
+                continue;
+            };
             success_count += 1;
         }
 
