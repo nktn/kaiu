@@ -301,7 +301,10 @@ pub const App = struct {
                 .paste_end => {
                     // End of paste - process the content (US3)
                     self.is_pasting = false;
-                    try self.handlePastedContent(self.paste_buffer.items);
+                    // Only treat as file drop in tree_view mode
+                    if (self.mode == .tree_view) {
+                        try self.handlePastedContent(self.paste_buffer.items);
+                    }
                     self.paste_buffer.clearRetainingCapacity();
                 },
             }
@@ -2165,32 +2168,18 @@ pub const App = struct {
         }
 
         // Try to extract file paths from the pasted content
+        // First split by newlines, then by unescaped spaces (for multi-file drops)
         var iter = std.mem.tokenizeAny(u8, content, "\n\r");
         while (iter.next()) |line| {
-            const trimmed = std.mem.trim(u8, line, " \t");
-            if (trimmed.len == 0) continue;
+            // Split line by unescaped spaces (Finder sends "path1 path2" for multi-file)
+            var line_paths = self.splitByUnescapedSpace(line);
+            defer line_paths.deinit(self.allocator);
 
-            // Strip file:// prefix if present (some terminals use URI format)
-            const without_prefix = if (std.mem.startsWith(u8, trimmed, "file://"))
-                trimmed[7..]
-            else
-                trimmed;
+            for (line_paths.items) |segment| {
+                const trimmed = std.mem.trim(u8, segment, " \t");
+                if (trimmed.len == 0) continue;
 
-            // URL decode (e.g., %20 -> space)
-            const url_decoded = self.urlDecodePath(without_prefix) catch continue;
-            defer if (url_decoded.ptr != without_prefix.ptr) self.allocator.free(url_decoded);
-
-            // Unescape backslash-escaped characters (Finder uses "\ " for spaces)
-            const unescaped = self.unescapePath(url_decoded) catch continue;
-            defer if (unescaped.ptr != url_decoded.ptr) self.allocator.free(unescaped);
-
-            // Check if this looks like a file path
-            if (self.isValidFilePath(unescaped)) {
-                const path_copy = self.allocator.dupe(u8, unescaped) catch continue;
-                paths.append(self.allocator, path_copy) catch {
-                    self.allocator.free(path_copy);
-                    continue;
-                };
+                try self.processDropPath(&paths, trimmed);
             }
         }
 
@@ -2203,6 +2192,68 @@ pub const App = struct {
 
         // Handle as file drop
         try self.handleFileDrop(paths.items);
+    }
+
+    /// Split a string by unescaped spaces (backslash-escaped spaces are kept)
+    fn splitByUnescapedSpace(self: *Self, input: []const u8) std.ArrayList([]const u8) {
+        var result: std.ArrayList([]const u8) = .empty;
+        var start: usize = 0;
+        var i: usize = 0;
+
+        while (i < input.len) {
+            if (input[i] == '\\' and i + 1 < input.len) {
+                // Skip escaped character
+                i += 2;
+            } else if (input[i] == ' ') {
+                // Unescaped space - split here
+                if (i > start) {
+                    result.append(self.allocator, input[start..i]) catch {};
+                }
+                start = i + 1;
+                i += 1;
+            } else {
+                i += 1;
+            }
+        }
+
+        // Add remaining segment
+        if (start < input.len) {
+            result.append(self.allocator, input[start..]) catch {};
+        }
+
+        return result;
+    }
+
+    /// Process a single drop path - decode, unescape, validate, and add to paths list
+    fn processDropPath(self: *Self, paths: *std.ArrayList([]const u8), trimmed: []const u8) !void {
+        // Strip file:// prefix if present (some terminals use URI format)
+        // Also handle file://localhost/... format
+        const without_prefix = blk: {
+            if (std.mem.startsWith(u8, trimmed, "file://localhost/")) {
+                break :blk trimmed[16..]; // "file://localhost" = 16 chars, keep the /
+            } else if (std.mem.startsWith(u8, trimmed, "file://")) {
+                break :blk trimmed[7..];
+            } else {
+                break :blk trimmed;
+            }
+        };
+
+        // URL decode (e.g., %20 -> space)
+        const url_decoded = self.urlDecodePath(without_prefix) catch return;
+        defer if (url_decoded.ptr != without_prefix.ptr) self.allocator.free(url_decoded);
+
+        // Unescape backslash-escaped characters (Finder uses "\ " for spaces)
+        const unescaped = self.unescapePath(url_decoded) catch return;
+        defer if (unescaped.ptr != url_decoded.ptr) self.allocator.free(unescaped);
+
+        // Check if this looks like a file path
+        if (self.isValidFilePath(unescaped)) {
+            const path_copy = self.allocator.dupe(u8, unescaped) catch return;
+            paths.append(self.allocator, path_copy) catch {
+                self.allocator.free(path_copy);
+                return;
+            };
+        }
     }
 
     /// URL decode path (e.g., %20 -> space, %2F -> /)
