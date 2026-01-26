@@ -14,7 +14,7 @@ TUI file explorer with Vim keybindings, written in Zig.
 - Mouse wheel scrolling
 - **VCS integration** - Git/JJ status colors and branch display
 - **Image preview** - PNG, JPG, GIF, WebP via Kitty Graphics Protocol
-- **Drag & drop** - Drop files from Finder to copy into current directory
+- **Drag & drop** - Drop files from Finder to copy into current directory (ASCII filenames only)
 - **File watching** - Auto-refresh on external file changes
 
 ## Requirements
@@ -119,6 +119,15 @@ src/
 ## Architecture
 
 See [.claude/rules/architecture.md](.claude/rules/architecture.md) for design decisions.
+
+## Known Limitations
+
+### Drag & Drop
+
+- **Non-ASCII filenames**: Drag & drop only works with ASCII filenames due to libvaxis bracketed paste implementation limitations
+  - libvaxis converts some UTF-8 multibyte characters to U+FFFD (replacement character) during paste events
+  - **Workaround**: Use kaiu's internal yank/paste (`y`/`p`) for files with non-ASCII names
+  - Related: [bemenu #410](https://github.com/Cloudef/bemenu/issues/410)
 
 ## License
 
