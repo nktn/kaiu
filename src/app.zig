@@ -273,8 +273,15 @@ pub const App = struct {
                 .key_press => |key| {
                     if (self.is_pasting) {
                         // Buffer keystrokes during paste (US3)
-                        if (key.codepoint < 128) {
-                            try self.paste_buffer.append(self.allocator, @intCast(key.codepoint));
+                        // Encode codepoint as UTF-8 to support non-ASCII characters
+                        // Note: Japanese filenames may not work due to libvaxis bracketed paste limitation
+                        if (key.codepoint > 0 and key.codepoint <= 0x10FFFF) {
+                            var utf8_buf: [4]u8 = undefined;
+                            const codepoint: u21 = @intCast(key.codepoint);
+                            const len = std.unicode.utf8Encode(codepoint, &utf8_buf) catch 0;
+                            if (len > 0) {
+                                try self.paste_buffer.appendSlice(self.allocator, utf8_buf[0..len]);
+                            }
                         }
                     } else {
                         try self.handleKey(key);
@@ -2072,9 +2079,12 @@ pub const App = struct {
     fn handlePastedContent(self: *Self, content: []const u8) !void {
         if (content.len == 0) return;
 
-        // Parse paths (may be multiple, separated by newlines or spaces)
+        // Parse paths (may be multiple, separated by newlines)
         var paths: std.ArrayList([]const u8) = .empty;
-        defer paths.deinit(self.allocator);
+        defer {
+            for (paths.items) |p| self.allocator.free(p);
+            paths.deinit(self.allocator);
+        }
 
         // Try to extract file paths from the pasted content
         var iter = std.mem.tokenizeAny(u8, content, "\n\r");
@@ -2082,14 +2092,24 @@ pub const App = struct {
             const trimmed = std.mem.trim(u8, line, " \t");
             if (trimmed.len == 0) continue;
 
+            // Unescape backslash-escaped characters (Finder uses "\ " for spaces)
+            const unescaped = self.unescapePath(trimmed) catch continue;
+            defer if (unescaped.ptr != trimmed.ptr) self.allocator.free(unescaped);
+
             // Check if this looks like a file path
-            if (self.isValidFilePath(trimmed)) {
-                try paths.append(self.allocator, trimmed);
+            if (self.isValidFilePath(unescaped)) {
+                const path_copy = self.allocator.dupe(u8, unescaped) catch continue;
+                paths.append(self.allocator, path_copy) catch {
+                    self.allocator.free(path_copy);
+                    continue;
+                };
             }
         }
 
         if (paths.items.len == 0) {
-            // No valid file paths found - this is just regular paste, ignore
+            // No valid file paths found - show what we received
+            const show_len = @min(content.len, 40);
+            self.status_message = std.fmt.bufPrint(&self.status_message_buf, "no paths in: '{s}'", .{content[0..show_len]}) catch "no valid paths";
             return;
         }
 
@@ -2097,9 +2117,37 @@ pub const App = struct {
         try self.handleFileDrop(paths.items);
     }
 
+    /// Unescape backslash-escaped characters in path (e.g., "\ " -> " ")
+    fn unescapePath(self: *Self, path: []const u8) ![]const u8 {
+        // Count if we need to unescape
+        var has_escape = false;
+        for (path) |c| {
+            if (c == '\\') {
+                has_escape = true;
+                break;
+            }
+        }
+        if (!has_escape) return path;
+
+        // Allocate and unescape
+        var result = try self.allocator.alloc(u8, path.len);
+        var out_idx: usize = 0;
+        var i: usize = 0;
+        while (i < path.len) : (i += 1) {
+            if (path[i] == '\\' and i + 1 < path.len) {
+                // Skip backslash, keep next character
+                i += 1;
+                result[out_idx] = path[i];
+            } else {
+                result[out_idx] = path[i];
+            }
+            out_idx += 1;
+        }
+        return self.allocator.realloc(result, out_idx) catch result[0..out_idx];
+    }
+
     /// Check if a string looks like a valid file path that exists (T039)
-    fn isValidFilePath(self: *Self, path: []const u8) bool {
-        _ = self;
+    fn isValidFilePath(_: *Self, path: []const u8) bool {
         // Must start with / (absolute path) or ~ (home-relative)
         if (path.len == 0) return false;
         if (path[0] != '/' and path[0] != '~') return false;
@@ -2121,10 +2169,26 @@ pub const App = struct {
         return true;
     }
 
-    /// Handle file drop - copy files to current directory (T040, T041, T042, T046, T047)
+    /// Handle file drop - copy files to cursor directory or root (T040, T041, T042, T046, T047)
     fn handleFileDrop(self: *Self, paths: []const []const u8) !void {
         const ft = self.file_tree orelse return;
-        const dest_dir = self.getCurrentDirectory(ft);
+
+        // Determine destination: use cursor position directory
+        const dest_dir = blk: {
+            // If cursor is on a valid entry, use its directory
+            if (ft.visibleToActualIndex(self.cursor, self.show_hidden)) |actual_idx| {
+                if (actual_idx < ft.entries.items.len) {
+                    const entry = &ft.entries.items[actual_idx];
+                    if (entry.kind == .directory) {
+                        break :blk entry.path;
+                    } else {
+                        // For files, use parent directory
+                        break :blk std.fs.path.dirname(entry.path) orelse ft.root_path;
+                    }
+                }
+            }
+            break :blk ft.root_path;
+        };
 
         var success_count: usize = 0;
         const total_count: usize = paths.len;
@@ -2148,7 +2212,9 @@ pub const App = struct {
             defer self.allocator.free(final_dest);
 
             // Copy the file/directory (T040, T041)
-            self.copyPath(expanded, final_dest) catch continue;
+            self.copyPath(expanded, final_dest) catch {
+                continue;
+            };
             success_count += 1;
         }
 
