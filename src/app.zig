@@ -447,8 +447,7 @@ pub const App = struct {
 
     fn handlePreviewKey(self: *Self, key_char: u21) void {
         switch (key_char) {
-            'q' => self.should_quit = true,
-            'o', 'h' => self.closePreview(),
+            'q', 'o', 'h' => self.closePreview(),
             'j' => self.scrollPreviewDown(self.vx.window().height),
             'k' => if (self.preview_scroll > 0) {
                 self.preview_scroll -= 1;
@@ -779,6 +778,26 @@ pub const App = struct {
         // Get image dimensions (T031)
         self.preview_image_dims = image.getImageDimensions(path);
 
+        // Show "Loading..." for large images before loading
+        // Use u64 to avoid overflow for large images (e.g., 8K = 7680x4320)
+        const is_large_image = if (self.preview_image_dims) |dims|
+            @as(u64, dims.width) * @as(u64, dims.height) > 1920 * 1080 // > Full HD
+        else
+            false;
+
+        if (is_large_image) {
+            // Show loading message and render immediately
+            self.preview_content = try self.allocator.dupe(u8, "[Loading image...]");
+            self.preview_scroll = 0;
+            self.mode = .preview;
+            try self.render(self.tty.writer());
+            // Clear for actual image load
+            if (self.preview_content) |content| {
+                self.allocator.free(content);
+                self.preview_content = null;
+            }
+        }
+
         // Try to load image using Kitty Graphics Protocol
         // Note: Force enable on Ghostty since libvaxis may not detect it correctly
         const is_ghostty = if (std.posix.getenv("TERM_PROGRAM")) |tp|
@@ -805,15 +824,74 @@ pub const App = struct {
                 if (vaxis.zigimg.Image.fromFilePath(self.allocator, path, read_buffer)) |loaded_img_const| {
                     var loaded_img = loaded_img_const;
                     defer loaded_img.deinit();
-                    self.preview_image = self.vx.transmitImage(
-                        self.allocator,
-                        self.tty.writer(),
-                        &loaded_img,
-                        .rgba,
-                    ) catch |err| blk: {
-                        load_error = @errorName(err);
-                        break :blk null;
+
+                    // Convert to RGBA32 format before downsampling (Codex review fix)
+                    // This ensures consistent pixel format regardless of source image type
+                    loaded_img.convert(.rgba32) catch {
+                        load_error = "ConvertRGBA";
+                        break :kitty_load;
                     };
+
+                    // Calculate target size from terminal dimensions
+                    // Estimate ~10px per cell width, ~20px per cell height
+                    const win = self.vx.window();
+                    // Clamp to at least 1 to avoid division by zero (Codex review fix)
+                    const max_width: u32 = @max(1, @as(u32, @intCast(win.width)) * 10);
+                    const max_height: u32 = @max(1, @as(u32, @intCast(win.height)) * 20);
+
+                    // Downsample large images for performance (#57)
+                    const maybe_downsampled = image.downsampleImage(self.allocator, &loaded_img, max_width, max_height) catch {
+                        load_error = "DownsampleOOM";
+                        break :kitty_load;
+                    };
+
+                    if (maybe_downsampled) |downsampled| {
+                        defer downsampled.deinit(self.allocator);
+
+                        // Create a new zigimg.Image from downsampled pixels
+                        const pixel_bytes = std.mem.sliceAsBytes(downsampled.pixels);
+                        if (vaxis.zigimg.Image.fromRawPixels(
+                            self.allocator,
+                            downsampled.width,
+                            downsampled.height,
+                            pixel_bytes,
+                            .rgba32,
+                        )) |resized_img_const| {
+                            var resized_img = resized_img_const;
+                            defer resized_img.deinit();
+                            self.preview_image = self.vx.transmitImage(
+                                self.allocator,
+                                self.tty.writer(),
+                                &resized_img,
+                                .rgba,
+                            ) catch |err| blk: {
+                                load_error = @errorName(err);
+                                break :blk null;
+                            };
+                        } else |_| {
+                            // Fall back to original if resized image creation fails
+                            self.preview_image = self.vx.transmitImage(
+                                self.allocator,
+                                self.tty.writer(),
+                                &loaded_img,
+                                .rgba,
+                            ) catch |err| blk: {
+                                load_error = @errorName(err);
+                                break :blk null;
+                            };
+                        }
+                    } else {
+                        // No downsampling needed (image already small)
+                        self.preview_image = self.vx.transmitImage(
+                            self.allocator,
+                            self.tty.writer(),
+                            &loaded_img,
+                            .rgba,
+                        ) catch |err| blk: {
+                            load_error = @errorName(err);
+                            break :blk null;
+                        };
+                    }
                 } else |err| {
                     load_error = @errorName(err);
                 }
@@ -1935,7 +2013,7 @@ pub const App = struct {
             .new_dir => "Enter:create  Esc:cancel",
             .confirm_delete => "y:confirm  n/Esc:cancel",
             .confirm_overwrite => "o:overwrite  r:rename  Esc:cancel",
-            .preview => "j/k:scroll  o:close  q:quit",
+            .preview => "j/k:scroll  q/o/h:close",
             .help => "",
         };
 

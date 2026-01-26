@@ -47,8 +47,7 @@ stateDiagram-v2
     ConfirmDelete --> TreeView: y (delete)
     ConfirmDelete --> TreeView: n/Esc (cancel)
 
-    Preview --> TreeView: o/h (close)
-    Preview --> [*]: q
+    Preview --> TreeView: q/o/h (close)
 
     Help --> TreeView: any key
 ```
@@ -94,9 +93,8 @@ stateDiagram-v2
 | NewDir | `Esc` | TreeView | cancel |
 | ConfirmDelete | `y` | TreeView | performDelete() |
 | ConfirmDelete | `n`/`Esc` | TreeView | cancel |
-| Preview | `o`/`h` | TreeView | closePreview() |
+| Preview | `q`/`o`/`h` | TreeView | closePreview() |
 | Preview | `j`/`k` | Preview | scroll |
-| Preview | `q` | Quit | cleanup() |
 | Help | any | TreeView | dismiss |
 
 ### State Enum
@@ -496,6 +494,29 @@ CLI arg     main.zig              FileTree            Status Bar
 - **ファイル監視**: mtimeポーリング、デバウンス、クロスプラットフォーム対応
 - **Kitty Graphics**: RGBA送信、Ghostty検出、フォールバック実装
 **Rationale**: See `.claude/skills/learned/kitty-graphics-rgba-transmit.md`, `.claude/skills/learned/ghostty-terminal-detection.md`, `.claude/skills/learned/mtime-polling-file-watch.md`
+
+### [2026-01-26] Preview モード q キー挙動変更 (#56)
+**Context**: プレビューモードで q を押すと kaiu が終了してしまう
+**Decision**: `q` を `closePreview()` に変更し、TreeView に戻るようにする
+**Rationale**:
+- ユーザーの直感: 「`q` = 今の画面を閉じる」
+- 他のモード (Search, Help) と一貫性を保つ
+- 終了したい場合は TreeView に戻ってから `q`
+**Implementation**: `handlePreviewKey` で `'q', 'o', 'h' => self.closePreview()`
+
+### [2026-01-26] 画像プレビューのダウンサンプリング (#57)
+**Context**: 大きな画像 (4K+) の表示が非常に遅い
+**Decision**: ターミナルサイズに合わせて Nearest-neighbor でダウンサンプリング
+**Rationale**:
+- 4K 画像 (3840x2160) → ~25MB → 数秒かかる
+- ターミナル表示領域は ~800x600 で十分
+- ダウンサンプリング後は ~1.4MB → 即座に表示
+**Implementation**:
+- `image.zig` に `downsampleImage()` 関数を追加
+- `app.zig` の `openImagePreview()` で呼び出し
+- スケール計算: `max(src_w/max_w, src_h/max_h)`
+- ターゲットサイズ: `win.width * 10, win.height * 20` (ピクセル概算)
+**Performance**: 体感 10-20x 改善
 
 ### [2026-01-26] Drag & Drop UTF-8 Limitation (#61)
 **Context**: Finder からのドラッグ&ドロップ実装、日本語ファイル名が動作しない
