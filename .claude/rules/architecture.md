@@ -518,19 +518,6 @@ CLI arg     main.zig              FileTree            Status Bar
 - ターゲットサイズ: `win.width * 10, win.height * 20` (ピクセル概算)
 **Performance**: 体感 10-20x 改善
 
-### [2026-01-26] Drag & Drop UTF-8 Limitation (#61)
-**Context**: Finder からのドラッグ&ドロップ実装、日本語ファイル名が動作しない
-**Decision**: ASCII ファイル名のみサポート、UTF-8 エンコード処理を追加、制限を明示
-**Implementation**:
-- Bracketed paste イベントで UTF-8 エンコード (`std.unicode.utf8Encode`)
-- バックスラッシュエスケープ解除 (`\ ` → ` `)
-- カーソル位置のディレクトリにドロップ
-**Limitation**:
-- libvaxis の bracketed paste 実装が UTF-8 マルチバイト文字を一部 U+FFFD に変換
-- 日本語ファイル名は内部 yank/paste (y/p) を使用するよう案内
-**Rationale**: See `.claude/skills/learned/libvaxis-bracketed-paste-utf8-limitation.md`
-**Related**: [bemenu #410](https://github.com/Cloudef/bemenu/issues/410)
-
 ---
 
 <!-- New decisions above this line -->

@@ -274,7 +274,6 @@ pub const App = struct {
                     if (self.is_pasting) {
                         // Buffer keystrokes during paste (US3)
                         // Encode codepoint as UTF-8 to support non-ASCII characters
-                        // Note: Japanese filenames may not work due to libvaxis bracketed paste limitation
                         if (key.codepoint > 0 and key.codepoint <= 0x10FFFF) {
                             var utf8_buf: [4]u8 = undefined;
                             const codepoint: u21 = @intCast(key.codepoint);
