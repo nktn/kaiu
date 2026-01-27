@@ -122,7 +122,7 @@ src/
 ├── file_ops.zig  # File operations, path utilities
 ├── tree.zig      # FileTree data structure
 ├── ui.zig        # libvaxis rendering, highlighting
-├── vcs.zig       # VCS integration (Git/JJ status)
+├── vcs.zig       # VCS integration (JuJutsu/Git status)
 ├── image.zig     # Image format detection and dimensions
 ├── watcher.zig   # File system watching (mtime polling)
 └── kitty_gfx.zig # Kitty Graphics Protocol for image display
