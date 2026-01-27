@@ -4,7 +4,7 @@ TUI file explorer with Vim keybindings, written in Zig.
 
 ## Features
 
-- VSCode-like tree view with expand/collapse
+- Tree view with expand/collapse
 - Vim-native navigation (hjkl, gg/G)
 - Incremental search with highlighting
 - File preview with line numbers
