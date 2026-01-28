@@ -1,10 +1,19 @@
 const std = @import("std");
 const app = @import("app.zig");
 
+// Include icons module for testing (T032)
+pub const icons = @import("icons.zig");
+
 /// Result of path expansion and validation.
 pub const PathResult = struct {
     path: []const u8,
     owned: bool,
+};
+
+/// CLI options parsed from command line arguments (Phase 3.5 - US4: T029)
+pub const CliOptions = struct {
+    path: []const u8,
+    show_icons: bool,
 };
 
 pub fn main() !void {
@@ -17,26 +26,65 @@ pub fn main() !void {
     }
     const allocator = gpa.allocator();
 
-    // Parse command line arguments
+    // Parse command line arguments (T029)
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
 
-    const raw_path = if (args.len > 1) args[1] else ".";
+    const cli_options = parseCliArgs(args);
 
     // Expand ~ to home directory and validate path
-    const result = expandAndValidatePath(allocator, raw_path) catch |err| {
+    const result = expandAndValidatePath(allocator, cli_options.path) catch |err| {
         switch (err) {
             error.HomeNotFound => std.debug.print("Error: Cannot resolve home directory\n", .{}),
-            error.PathNotFound => std.debug.print("Error: Path not found: {s}\n", .{raw_path}),
-            error.NotADirectory => std.debug.print("Error: Not a directory: {s}\n", .{raw_path}),
-            error.AccessDenied => std.debug.print("Error: Permission denied: {s}\n", .{raw_path}),
-            else => std.debug.print("Error: Cannot access path: {s}\n", .{raw_path}),
+            error.PathNotFound => std.debug.print("Error: Path not found: {s}\n", .{cli_options.path}),
+            error.NotADirectory => std.debug.print("Error: Not a directory: {s}\n", .{cli_options.path}),
+            error.AccessDenied => std.debug.print("Error: Permission denied: {s}\n", .{cli_options.path}),
+            else => std.debug.print("Error: Cannot access path: {s}\n", .{cli_options.path}),
         }
         std.process.exit(1);
     };
     defer if (result.owned) allocator.free(result.path);
 
-    try app.run(allocator, result.path);
+    try app.run(allocator, result.path, cli_options.show_icons);
+}
+
+/// Parse CLI arguments (Phase 3.5 - US4: T029)
+/// FR-033: --no-icons flag to disable icon display
+fn parseCliArgs(args: []const [:0]const u8) CliOptions {
+    var show_icons: bool = true;
+    var path_arg: []const u8 = ".";
+
+    // Skip argv[0] (program name)
+    for (args[1..]) |arg| {
+        if (std.mem.eql(u8, arg, "--no-icons")) {
+            show_icons = false;
+        } else if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
+            printUsage();
+            std.process.exit(0);
+        } else if (!std.mem.startsWith(u8, arg, "-")) {
+            // Non-flag argument is the path
+            path_arg = arg;
+        }
+    }
+
+    return .{
+        .path = path_arg,
+        .show_icons = show_icons,
+    };
+}
+
+fn printUsage() void {
+    std.debug.print(
+        \\Usage: kaiu [OPTIONS] [PATH]
+        \\
+        \\Arguments:
+        \\  PATH              Directory to explore (default: current directory)
+        \\
+        \\Options:
+        \\  --no-icons        Disable Nerd Font icons
+        \\  -h, --help        Show this help message
+        \\
+    , .{});
 }
 
 /// Expand ~ to home directory and validate path exists and is a directory.

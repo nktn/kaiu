@@ -24,11 +24,11 @@ See @.claude/rules/architecture.md for state machine and design decisions.
 
 ## Keybindings
 
-Navigation: `j`/`k` move, `h` collapse/close, `l`/`Enter` expand/open, `gg`/`G` jump, `.` toggle hidden, `/` search, `?` help.
+Navigation: `j`/`k` move, `h` collapse/close, `l`/`Enter` expand/open, `gg`/`G` jump, `.` toggle hidden, `/` search, `?` help, mouse click/double-click.
 
 File operations: `Space` mark, `y` yank, `d` cut, `p` paste, `D` delete, `r` rename, `a`/`A` create.
 
-Other: `o` preview toggle, `c`/`C` clipboard, `q` quit.
+Other: `o` preview toggle, `c`/`C` clipboard, `q` quit, `--no-icons` flag to disable Nerd Font icons.
 
 ## Workflow
 
