@@ -11,7 +11,8 @@ TUI file explorer with Vim keybindings, written in Zig.
 - Hidden files toggle
 - File operations (mark, yank/cut/paste, delete, rename, create)
 - Clipboard support (OSC 52)
-- Mouse wheel scrolling
+- Mouse support (click to navigate, double-click to expand/preview)
+- **Nerd Font icons** - File type icons (disable via config or `--no-icons`)
 - **VCS integration** - JuJutsu / Git status colors and branch display (JJ preferred when both exist)
 - **Image preview** - PNG, JPG, GIF, WebP via Kitty Graphics Protocol
 - **Drag & drop** - Drop files from Finder to copy into current directory
@@ -37,7 +38,20 @@ zig build -Doptimize=ReleaseFast
 kaiu              # Open current directory
 kaiu ~/projects   # Open specific directory
 kaiu ~/.config    # Tilde expansion supported
+kaiu --no-icons   # Disable Nerd Font icons
+kaiu --icons      # Enable icons (override config)
 ```
+
+## Configuration
+
+Config file: `~/.config/kaiu/config`
+
+```
+# Disable Nerd Font icons (for terminals without Nerd Font)
+show_icons = false
+```
+
+Priority: CLI flags > config file > defaults
 
 ## Keybindings
 
@@ -51,6 +65,8 @@ kaiu ~/.config    # Tilde expansion supported
 | `l` / `→` / `Enter` | Expand directory / open preview |
 | `gg` | Jump to top |
 | `G` | Jump to bottom |
+| Left click | Move cursor to clicked row |
+| Double click | Expand directory / open preview |
 
 ### Tree Operations
 
@@ -105,14 +121,15 @@ kaiu ~/.config    # Tilde expansion supported
 
 ```
 src/
-├── main.zig     # Entry point, CLI argument handling
-├── app.zig      # Application state, event loop, key handling
-├── file_ops.zig # File operations (copy, delete, clipboard)
-├── tree.zig     # FileTree data structure
-├── ui.zig       # libvaxis rendering, search highlighting
-├── vcs.zig      # VCS integration (JuJutsu/Git status detection)
-├── image.zig    # Image format detection and dimensions
-├── watcher.zig  # File system watching (mtime polling)
+├── main.zig      # Entry point, CLI argument handling
+├── app.zig       # Application state, event loop, key handling
+├── file_ops.zig  # File operations (copy, delete, clipboard)
+├── tree.zig      # FileTree data structure
+├── ui.zig        # libvaxis rendering, search highlighting
+├── icons.zig     # Nerd Font icons mapping
+├── vcs.zig       # VCS integration (JuJutsu/Git status detection)
+├── image.zig     # Image format detection and dimensions
+├── watcher.zig   # File system watching (mtime polling)
 └── kitty_gfx.zig # Kitty Graphics Protocol for image display
 ```
 

@@ -10,9 +10,9 @@
 stateDiagram-v2
     [*] --> TreeView: init
 
-    TreeView --> TreeView: j/k (cursor move)
+    TreeView --> TreeView: j/k/click (cursor move)
     TreeView --> TreeView: h (collapse/parent)
-    TreeView --> TreeView: l/Enter on dir (expand)
+    TreeView --> TreeView: l/Enter/double-click on dir (expand)
     TreeView --> TreeView: . (toggle hidden)
     TreeView --> TreeView: gg/G (jump top/bottom)
     TreeView --> TreeView: H/L (collapse/expand all)
@@ -23,7 +23,7 @@ stateDiagram-v2
     TreeView --> TreeView: y (yank)
     TreeView --> TreeView: d (cut)
     TreeView --> TreeView: p (paste)
-    TreeView --> Preview: o/l/Enter on file
+    TreeView --> Preview: o/l/Enter/double-click on file
     TreeView --> Search: /
     TreeView --> Rename: r
     TreeView --> NewFile: a
@@ -56,9 +56,9 @@ stateDiagram-v2
 
 | From | Event | To | Action |
 |------|-------|-----|--------|
-| TreeView | `j`/`k` | TreeView | moveCursor() |
-| TreeView | `l`/`Enter` on dir | TreeView | expandOrEnter() |
-| TreeView | `l`/`Enter` on file | Preview | openPreview() |
+| TreeView | `j`/`k`/click | TreeView | moveCursor() / handleLeftClick() |
+| TreeView | `l`/`Enter`/double-click on dir | TreeView | expandOrEnter() |
+| TreeView | `l`/`Enter`/double-click on file | Preview | openPreview() |
 | TreeView | `h` on expanded dir | TreeView | collapse() |
 | TreeView | `h` on file/collapsed | TreeView | moveToParent() |
 | TreeView | `.` | TreeView | toggleHidden() |
@@ -122,6 +122,7 @@ src/
 ├── file_ops.zig  # File operations, path utilities
 ├── tree.zig      # FileTree data structure
 ├── ui.zig        # libvaxis rendering, highlighting
+├── icons.zig     # Nerd Font icons mapping
 ├── vcs.zig       # VCS integration (JuJutsu/Git status)
 ├── image.zig     # Image format detection and dimensions
 ├── watcher.zig   # File system watching (mtime polling)
@@ -141,6 +142,7 @@ src/
 | image.zig | 画像フォーマット検出、寸法抽出、マジックバイト検証 |
 | watcher.zig | ファイルシステム監視、mtimeポーリング、デバウンス |
 | kitty_gfx.zig | Kitty Graphics Protocol、RGBA送信、画像プレビュー |
+| icons.zig | Nerd Font アイコンマッピング、拡張子・ファイル名ルックアップ |
 
 ## Memory Strategy
 
@@ -238,6 +240,17 @@ pub const App = struct {
     marked_files: std.StringHashMap(void),
     clipboard_files: std.ArrayList([]const u8),
     clipboard_operation: ClipboardOperation,
+
+    // Mouse/click state (Phase 3.5)
+    last_click_time: ?std.time.Instant,
+    last_click_entry: ?usize,
+
+    // Status bar cache (Phase 3.5)
+    cached_file_info: ?CachedFileInfo,
+    cached_file_info_cursor: ?usize,
+
+    // Icons (Phase 3.5)
+    show_icons: bool,
 };
 ```
 
@@ -271,15 +284,16 @@ pub const App = struct {
 | 1000+ | 要分割 | モジュール分割を実施 |
 
 **現在のファイルサイズ**:
-- app.zig: ~2000行 (Phase 3 機能追加後、凝集度を保ちつつ外部統合コードを含む)
+- app.zig: ~2900行 (Phase 3.5 機能追加後、マウス/ステータスバー/アイコン対応含む)
 - file_ops.zig: ~390行 (適正 - App非依存のファイル操作)
 - tree.zig: ~370行 (適正)
-- ui.zig: ~700行 (適正 - VCS色表示、画像プレビュー含む)
+- ui.zig: ~750行 (適正 - VCS色表示、画像プレビュー、ファイル情報フォーマット含む)
+- icons.zig: ~328行 (新規 - Nerd Font アイコンマッピング)
 - vcs.zig: ~450行 (適正 - Git/JJステータス検出)
 - image.zig: ~334行 (適正 - 画像フォーマット検出)
 - watcher.zig: ~209行 (適正 - ファイルシステム監視)
 - kitty_gfx.zig: ~150行 (適正 - Kitty Graphics Protocol)
-- main.zig: ~174行 (適正)
+- main.zig: ~180行 (適正 - CLI引数処理)
 
 **重要**: 凝集度（関連する機能がまとまっている）を行数より優先する。
 
@@ -517,6 +531,43 @@ CLI arg     main.zig              FileTree            Status Bar
 - スケール計算: `max(src_w/max_w, src_h/max_h)`
 - ターゲットサイズ: `win.width * 10, win.height * 20` (ピクセル概算)
 **Performance**: 体感 10-20x 改善
+
+### [2026-01-28] Phase 3.5 UI/UX Enhancements
+
+#### Mouse Click Navigation (US1)
+**Context**: マウスクリックでカーソルを移動
+**Decision**: handleLeftClick() で画面行から visible index を計算
+**Implementation**:
+- screen_row + scroll_offset で visible index を算出
+- ステータスバー (下2行) はクリック対象外
+- 空白行 (エントリがない行) もクリック対象外
+
+#### Double-Click Detection (US2)
+**Context**: ダブルクリックでディレクトリ展開/ファイルプレビュー
+**Decision**: std.time.Instant でモノトニック時間を使用、400ms 閾値
+**Implementation**:
+- last_click_time: ?std.time.Instant と last_click_entry: ?usize を保持
+- 同じエントリへの 400ms 以内のクリックをダブルクリックと判定
+- スクロール後は同じ画面行でも異なるエントリなので非ダブルクリック
+
+#### Status Bar File Info (US3)
+**Context**: ステータスバーにファイル情報を表示
+**Decision**: CachedFileInfo でカーソル変更時のみ stat() を呼び出し
+**Implementation**:
+- formatSize(): B/K/M/G 表示 (1024 base)
+- formatRelativeTime(): "just now" / "N min ago" / "N hr ago" / "N days ago" / "YYYY-MM-DD"
+- 30日を超えると絶対日付表示
+- stat 失敗時は "-" 表示
+
+#### Nerd Font Icons (US4)
+**Context**: ファイルタイプに応じたアイコン表示
+**Decision**: icons.zig に StaticStringMap でアイコンマッピング
+**Implementation**:
+- extension_icons: 拡張子 → アイコン (50+ 種類)
+- filename_icons: 特殊ファイル名 → アイコン (Makefile, .gitignore 等)
+- folder_open/folder_closed: ディレクトリ用
+- --no-icons フラグで無効化可能
+- vaxis.gwidth.strWidth() でアイコン幅を計算
 
 ---
 

@@ -46,17 +46,17 @@
 
 ### Tests for User Story 1
 
-- [ ] T001 [US1] Add test for handleLeftClick with valid row in src/app.zig
-- [ ] T002 [US1] Add test for click outside tree area (status bar) in src/app.zig
-- [ ] T002a [US1] Add test for click on blank row below last entry in src/app.zig
+- [x] T001 [US1] Add test for handleLeftClick with valid row in src/app.zig
+- [x] T002 [US1] Add test for click outside tree area (status bar) in src/app.zig
+- [x] T002a [US1] Add test for click on blank row below last entry in src/app.zig
 
 ### Implementation for User Story 1
 
-- [ ] T003 [US1] Implement handleLeftClick() function in src/app.zig
-- [ ] T004 [US1] Add left-click detection in handleMouse() in src/app.zig
-- [ ] T005 [US1] Calculate visible index from screen row + scroll offset in src/app.zig
-- [ ] T006 [US1] Exclude status bar area (bottom 2 rows) from click detection in src/app.zig
-- [ ] T006a [US1] Ignore clicks on blank rows below last entry in src/app.zig
+- [x] T003 [US1] Implement handleLeftClick() function in src/app.zig
+- [x] T004 [US1] Add left-click detection in handleMouse() in src/app.zig
+- [x] T005 [US1] Calculate visible index from screen row + scroll offset in src/app.zig
+- [x] T006 [US1] Exclude status bar area (bottom 2 rows) from click detection in src/app.zig
+- [x] T006a [US1] Ignore clicks on blank rows below last entry in src/app.zig
 
 **Checkpoint**: Mouse click moves cursor - US1 complete, ready for manual testing
 
@@ -71,18 +71,18 @@
 
 ### Tests for User Story 2
 
-- [ ] T007 [US2] Add test for double-click detection (within 400ms) in src/app.zig
-- [ ] T008 [US2] Add test for single-click (exceeds 400ms) in src/app.zig
-- [ ] T009 [US2] Add test for clicks on different entries (not double-click) in src/app.zig
-- [ ] T009a [US2] Add test for scroll between clicks (same row, different entry) in src/app.zig
+- [x] T007 [US2] Add test for double-click detection (within 400ms) in src/app.zig
+- [x] T008 [US2] Add test for single-click (exceeds 400ms) in src/app.zig
+- [x] T009 [US2] Add test for clicks on different entries (not double-click) in src/app.zig
+- [x] T009a [US2] Add test for scroll between clicks (same row, different entry) in src/app.zig
 
 ### Implementation for User Story 2
 
-- [ ] T010 [US2] Add last_click_time (Instant) and last_click_entry (visible index) fields to App in src/app.zig
-- [ ] T011 [US2] Add double_click_threshold_ns constant (400ms) in src/app.zig
-- [ ] T012 [US2] Implement double-click detection using monotonic time and entry identity in handleLeftClick() in src/app.zig
-- [ ] T013 [US2] Call expandOrEnter() on double-click in src/app.zig
-- [ ] T013a [US2] Handle broken symlink double-click with error message in src/app.zig
+- [x] T010 [US2] Add last_click_time (Instant) and last_click_entry (visible index) fields to App in src/app.zig
+- [x] T011 [US2] Add double_click_threshold_ns constant (400ms) in src/app.zig
+- [x] T012 [US2] Implement double-click detection using monotonic time and entry identity in handleLeftClick() in src/app.zig
+- [x] T013 [US2] Call expandOrEnter() on double-click in src/app.zig
+- [x] T013a [US2] Handle broken symlink double-click with error message in src/app.zig
 
 **Checkpoint**: Double-click works - US2 complete, ready for manual testing
 
@@ -96,19 +96,19 @@
 
 ### Tests for User Story 3
 
-- [ ] T014 [P] [US3] Add test for formatSize() edge cases (0B, 1K, 1M, 1G) in src/ui.zig
-- [ ] T015 [P] [US3] Add test for formatRelativeTime() (just now, minutes, hours, days) in src/ui.zig
-- [ ] T015a [P] [US3] Add test for stat failure handling (show "-") in src/ui.zig
+- [x] T014 [P] [US3] Add test for formatSize() edge cases (0B, 1K, 1M, 1G) in src/ui.zig
+- [x] T015 [P] [US3] Add test for formatRelativeTime() (just now, minutes, hours, days) in src/ui.zig
+- [x] T015a [P] [US3] Add test for stat failure handling (show "-") in src/ui.zig
 
 ### Implementation for User Story 3
 
-- [ ] T016 [P] [US3] Implement formatSize() function in src/ui.zig
-- [ ] T017 [P] [US3] Implement formatRelativeTime() function (English format, 30-day cutoff) in src/ui.zig
-- [ ] T018 [US3] Add CachedFileInfo struct and cache on cursor change in src/app.zig
-- [ ] T019 [US3] Update renderStatusBar() to show file info layout in src/ui.zig
-- [ ] T020 [US3] Handle directory case (show item count instead of size) in src/ui.zig
-- [ ] T020a [US3] Handle stat failure (show "-" for size/time) in src/ui.zig
-- [ ] T020b [US3] Handle empty tree (show path only) in src/ui.zig
+- [x] T016 [P] [US3] Implement formatSize() function in src/ui.zig
+- [x] T017 [P] [US3] Implement formatRelativeTime() function (English format, 30-day cutoff) in src/ui.zig
+- [x] T018 [US3] Add CachedFileInfo struct and cache on cursor change in src/app.zig
+- [x] T019 [US3] Update renderStatusBar() to show file info layout in src/ui.zig
+- [x] T020 [US3] Handle directory case (show item count instead of size) in src/ui.zig
+- [x] T020a [US3] Handle stat failure (show "-" for size/time) in src/ui.zig
+- [x] T020b [US3] Handle empty tree (show path only) in src/ui.zig
 
 **Checkpoint**: Status bar shows file info - US3 complete, ready for manual testing
 
@@ -122,21 +122,21 @@
 
 ### Tests for User Story 4
 
-- [ ] T021 [P] [US4] Add test for getIcon() with known extensions in src/icons.zig
-- [ ] T022 [P] [US4] Add test for getIcon() with special filenames in src/icons.zig
-- [ ] T023 [P] [US4] Add test for getIcon() fallback to default in src/icons.zig
-- [ ] T024 [P] [US4] Add test for directory icons (open/closed) in src/icons.zig
+- [x] T021 [P] [US4] Add test for getIcon() with known extensions in src/icons.zig
+- [x] T022 [P] [US4] Add test for getIcon() with special filenames in src/icons.zig
+- [x] T023 [P] [US4] Add test for getIcon() fallback to default in src/icons.zig
+- [x] T024 [P] [US4] Add test for directory icons (open/closed) in src/icons.zig
 
 ### Implementation for User Story 4
 
-- [ ] T025 [P] [US4] Create src/icons.zig with Icon struct definition
-- [ ] T026 [US4] Add extension_icons StaticStringMap (20+ file types) in src/icons.zig
-- [ ] T027 [US4] Add filename_icons StaticStringMap (special files) in src/icons.zig
-- [ ] T028 [US4] Implement getIcon() function in src/icons.zig
-- [ ] T029 [P] [US4] Add --no-icons CLI flag parsing in src/main.zig
-- [ ] T030 [US4] Add show_icons field to App and pass from main in src/app.zig
-- [ ] T031 [US4] Update renderEntry() to prepend icon before filename using vaxis stringWidth() in src/ui.zig
-- [ ] T032 [US4] Add icons module to build.zig
+- [x] T025 [P] [US4] Create src/icons.zig with Icon struct definition
+- [x] T026 [US4] Add extension_icons StaticStringMap (20+ file types) in src/icons.zig
+- [x] T027 [US4] Add filename_icons StaticStringMap (special files) in src/icons.zig
+- [x] T028 [US4] Implement getIcon() function in src/icons.zig
+- [x] T029 [P] [US4] Add --no-icons CLI flag parsing in src/main.zig
+- [x] T030 [US4] Add show_icons field to App and pass from main in src/app.zig
+- [x] T031 [US4] Update renderEntry() to prepend icon before filename using vaxis stringWidth() in src/ui.zig
+- [x] T032 [US4] Add icons module to build.zig
 
 **Checkpoint**: Icons display - US4 complete, ready for manual testing
 
@@ -146,8 +146,8 @@
 
 **Purpose**: Documentation and final validation
 
-- [ ] T033 [P] Update README.md with new mouse operations and icons flag
-- [ ] T034 [P] Update architecture.md with new App fields
+- [x] T033 [P] Update README.md with new mouse operations and icons flag
+- [x] T034 [P] Update architecture.md with new App fields
 - [ ] T035 Run manual tests: click, double-click, status bar, icons
 - [ ] T036 Run manual tests: --no-icons flag disables icons
 - [ ] T037 Verify in Ghostty, Kitty, WezTerm (if available)

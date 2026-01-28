@@ -2,6 +2,7 @@ const std = @import("std");
 const vaxis = @import("vaxis");
 const tree = @import("tree.zig");
 const vcs = @import("vcs.zig");
+const icons = @import("icons.zig");
 
 /// Sanitize text for safe terminal display by replacing control characters.
 /// Control chars (0x00-0x1F, 0x7F) and escape (0x1B) are replaced with '?'.
@@ -38,6 +39,7 @@ pub fn renderTree(
     search_matches: []const usize,
     marked_files: *const std.StringHashMap(void),
     vcs_status: ?*const vcs.VCSStatusResult,
+    show_icons: bool, // Phase 3.5 - US4: T031
     arena: std.mem.Allocator,
 ) !void {
     const height = win.height;
@@ -67,7 +69,7 @@ pub fn renderTree(
 
         // Get VCS status for this file (relative path)
         const file_vcs_status = getFileVCSStatus(ft, entry.path, vcs_status);
-        try renderEntry(win, entry, row, is_cursor, is_marked, entry_query, file_vcs_status, arena);
+        try renderEntry(win, entry, row, is_cursor, is_marked, entry_query, file_vcs_status, show_icons, arena);
 
         row += 1;
         visible_index += 1;
@@ -94,6 +96,11 @@ fn getFileVCSStatus(ft: *tree.FileTree, path: []const u8, vcs_status: ?*const vc
 }
 
 /// Check if index is in matches list (linear search, but matches are typically few)
+/// Check if index is in matches array.
+/// O(n) linear scan, but:
+/// - matches array is typically small (few search hits)
+/// - called only for visible entries (~30 rows)
+/// - total cost: O(visible_rows * match_count), acceptable for TUI
 fn isInMatches(index: usize, matches: []const usize) bool {
     for (matches) |m| {
         if (m == index) return true;
@@ -109,6 +116,7 @@ fn renderEntry(
     is_marked: bool,
     search_query: ?[]const u8,
     vcs_file_status: ?vcs.VCSFileStatus,
+    show_icons: bool, // Phase 3.5 - US4: T031
     arena: std.mem.Allocator,
 ) !void {
     var col: u16 = 0;
@@ -145,14 +153,44 @@ fn renderEntry(
         col += 2;
     }
 
+    // Phase 3.5 - US4: Get and render Nerd Font icon (T031)
+    if (show_icons) {
+        const icon = icons.getIcon(entry.name, entry.kind == .directory, entry.expanded);
+        const icon_buf = icon.toUtf8();
+        // FR-035: Use gwidth for proper cell width measurement
+        const icon_len = std.unicode.utf8CodepointSequenceLength(icon.codepoint) catch 3;
+
+        // Copy to arena to ensure lifetime extends beyond printSegment
+        const icon_text = try arena.dupe(u8, icon_buf[0..icon_len]);
+        const icon_width = vaxis.gwidth.gwidth(icon_text, .unicode);
+
+        // Icon color (use icon's color or default)
+        const icon_style: vaxis.Style = if (icon.color) |c|
+            .{ .fg = .{ .index = c } }
+        else
+            .{};
+
+        const icon_result = win.printSegment(.{
+            .text = icon_text,
+            .style = icon_style,
+        }, .{ .row_offset = row, .col_offset = col });
+        _ = icon_result; // col updated below
+
+        // Space after icon
+        col += @intCast(icon_width + 1);
+    }
+
     // Icon and name
     if (entry.kind == .directory) {
-        const icon = if (entry.expanded) "v " else "> ";
-        const icon_result = win.printSegment(.{
-            .text = icon,
-            .style = .{ .fg = .{ .index = 4 } }, // blue
-        }, .{ .row_offset = row, .col_offset = col });
-        col = icon_result.col;
+        if (!show_icons) {
+            // Legacy: show v/> for expand state
+            const dir_icon = if (entry.expanded) "v " else "> ";
+            const icon_result = win.printSegment(.{
+                .text = dir_icon,
+                .style = .{ .fg = .{ .index = 4 } }, // blue
+            }, .{ .row_offset = row, .col_offset = col });
+            col = icon_result.col;
+        }
 
         // Render directory name with search highlight
         col = try renderNameWithHighlight(win, safe_name, row, col, search_query, .{ .fg = .{ .index = 4 }, .bold = true });
@@ -162,8 +200,11 @@ fn renderEntry(
             .style = .{ .fg = .{ .index = 4 } },
         }, .{ .row_offset = row, .col_offset = col });
     } else {
-        const space_result = win.printSegment(.{ .text = "  " }, .{ .row_offset = row, .col_offset = col });
-        col = space_result.col;
+        if (!show_icons) {
+            // Legacy: 2-space indent for files
+            const space_result = win.printSegment(.{ .text = "  " }, .{ .row_offset = row, .col_offset = col });
+            col = space_result.col;
+        }
 
         // Determine style based on VCS status (T022)
         // Colors per FR-003:
@@ -488,6 +529,115 @@ pub fn renderHelp(win: vaxis.Window) !void {
     }, .{ .row_offset = row, .col_offset = footer_col });
 }
 
+// ===== Phase 3.5 - US3: Status Bar File Info (T016, T017) =====
+
+/// Format bytes to human-readable size (B, K, M, G)
+/// FR-022: Size in human-readable format
+pub fn formatSize(arena: std.mem.Allocator, bytes: u64) ![]const u8 {
+    if (bytes < 1024) {
+        return std.fmt.allocPrint(arena, "{d}B", .{bytes});
+    } else if (bytes < 1024 * 1024) {
+        const kb = @as(f64, @floatFromInt(bytes)) / 1024.0;
+        // Avoid ".0" suffix for whole numbers
+        if (kb == @trunc(kb)) {
+            return std.fmt.allocPrint(arena, "{d}K", .{@as(u64, @intFromFloat(kb))});
+        }
+        return std.fmt.allocPrint(arena, "{d:.1}K", .{kb});
+    } else if (bytes < 1024 * 1024 * 1024) {
+        const mb = @as(f64, @floatFromInt(bytes)) / (1024.0 * 1024.0);
+        if (mb == @trunc(mb)) {
+            return std.fmt.allocPrint(arena, "{d}M", .{@as(u64, @intFromFloat(mb))});
+        }
+        return std.fmt.allocPrint(arena, "{d:.1}M", .{mb});
+    } else {
+        const gb = @as(f64, @floatFromInt(bytes)) / (1024.0 * 1024.0 * 1024.0);
+        if (gb == @trunc(gb)) {
+            return std.fmt.allocPrint(arena, "{d}G", .{@as(u64, @intFromFloat(gb))});
+        }
+        return std.fmt.allocPrint(arena, "{d:.1}G", .{gb});
+    }
+}
+
+/// Format timestamp to relative time (English format)
+/// FR-023, FR-024, FR-028: Relative time within 30 days, absolute date after
+pub fn formatRelativeTime(arena: std.mem.Allocator, mtime_sec: i128, now_sec: i64) ![]const u8 {
+    // Handle edge case: mtime in future or invalid
+    if (mtime_sec > now_sec) {
+        return "just now";
+    }
+
+    const diff: i64 = now_sec - @as(i64, @intCast(@min(mtime_sec, std.math.maxInt(i64))));
+
+    if (diff < 60) {
+        return "just now";
+    }
+    if (diff < 3600) {
+        const mins = @divFloor(diff, 60);
+        if (mins == 1) {
+            return "1 min ago";
+        }
+        return std.fmt.allocPrint(arena, "{d} min ago", .{mins});
+    }
+    if (diff < 86400) {
+        const hours = @divFloor(diff, 3600);
+        if (hours == 1) {
+            return "1 hr ago";
+        }
+        return std.fmt.allocPrint(arena, "{d} hr ago", .{hours});
+    }
+    if (diff < 86400 * 2) {
+        return "yesterday";
+    }
+    // FR-028: 30 days cutoff for relative time
+    if (diff < 86400 * 30) {
+        const days = @divFloor(diff, 86400);
+        return std.fmt.allocPrint(arena, "{d} days ago", .{days});
+    }
+
+    // FR-024: Absolute date for older files (English format)
+    // Convert mtime_sec to date components using epoch calculation
+    const epoch_days = @divFloor(@as(i64, @intCast(@min(mtime_sec, std.math.maxInt(i64)))), 86400);
+    const date = epochDaysToDate(epoch_days);
+
+    const months = [_][]const u8{ "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+    const month_name = if (date.month >= 1 and date.month <= 12) months[date.month - 1] else "???";
+
+    // Get current year for comparison
+    const now_epoch_days = @divFloor(now_sec, 86400);
+    const now_date = epochDaysToDate(now_epoch_days);
+
+    // Show year if different from current year
+    if (date.year != now_date.year) {
+        return std.fmt.allocPrint(arena, "{s} {d} {d}", .{ month_name, date.day, date.year });
+    }
+    return std.fmt.allocPrint(arena, "{s} {d}", .{ month_name, date.day });
+}
+
+/// Simple date struct for epoch conversion
+const SimpleDate = struct {
+    year: i32,
+    month: u8,
+    day: u8,
+};
+
+/// Convert epoch days (since 1970-01-01) to year/month/day
+/// Algorithm based on Howard Hinnant's civil_from_days
+fn epochDaysToDate(epoch_days: i64) SimpleDate {
+    // Shift epoch to March 1, 0000
+    const z = epoch_days + 719468;
+    const era: i32 = @intCast(if (z >= 0) @divFloor(z, 146097) else @divFloor(z - 146096, 146097));
+    const doe: u32 = @intCast(z - era * 146097); // day of era [0, 146096]
+    const yoe: u32 = @intCast(@divFloor(doe - @divFloor(doe, 1460) + @divFloor(doe, 36524) - @divFloor(doe, 146096), 365));
+    const y: i32 = @as(i32, @intCast(yoe)) + era * 400;
+    const doy: u32 = doe - (365 * yoe + @divFloor(yoe, 4) - @divFloor(yoe, 100));
+    const mp: u32 = @divFloor(5 * doy + 2, 153);
+    const d: u8 = @intCast(doy - @divFloor(153 * mp + 2, 5) + 1);
+    const m: u8 = @intCast(if (mp < 10) mp + 3 else mp - 9);
+    const year: i32 = if (m <= 2) y + 1 else y;
+
+    return .{ .year = year, .month = m, .day = d };
+}
+
 test "renderEntry does not crash with empty window" {
     // Basic smoke test - just ensure the function signature is correct
     const entry = tree.FileEntry{
@@ -501,4 +651,123 @@ test "renderEntry does not crash with empty window" {
     };
     _ = entry;
     // Can't test rendering without a real vaxis.Window
+}
+
+// ===== Phase 3.5 - US3: Status Bar Tests (T014, T015, T015a) =====
+
+test "US3-T014: formatSize edge cases (0B, 1K, 1M, 1G)" {
+    const allocator = std.testing.allocator;
+
+    // 0 bytes
+    const s0 = try formatSize(allocator, 0);
+    defer allocator.free(s0);
+    try std.testing.expectEqualStrings("0B", s0);
+
+    // 1 byte
+    const s1 = try formatSize(allocator, 1);
+    defer allocator.free(s1);
+    try std.testing.expectEqualStrings("1B", s1);
+
+    // 1023 bytes (just under 1K)
+    const s1023 = try formatSize(allocator, 1023);
+    defer allocator.free(s1023);
+    try std.testing.expectEqualStrings("1023B", s1023);
+
+    // 1024 bytes = exactly 1K
+    const s1k = try formatSize(allocator, 1024);
+    defer allocator.free(s1k);
+    try std.testing.expectEqualStrings("1K", s1k);
+
+    // 1.5K = 1536 bytes
+    const s1_5k = try formatSize(allocator, 1536);
+    defer allocator.free(s1_5k);
+    try std.testing.expectEqualStrings("1.5K", s1_5k);
+
+    // 1M = 1048576 bytes
+    const s1m = try formatSize(allocator, 1024 * 1024);
+    defer allocator.free(s1m);
+    try std.testing.expectEqualStrings("1M", s1m);
+
+    // 1G = 1073741824 bytes
+    const s1g = try formatSize(allocator, 1024 * 1024 * 1024);
+    defer allocator.free(s1g);
+    try std.testing.expectEqualStrings("1G", s1g);
+
+    // 2.5G
+    const s2_5g = try formatSize(allocator, 2684354560);
+    defer allocator.free(s2_5g);
+    try std.testing.expectEqualStrings("2.5G", s2_5g);
+}
+
+test "US3-T015: formatRelativeTime (just now, minutes, hours, days)" {
+    const allocator = std.testing.allocator;
+    // Use a fixed "now" timestamp: 2024-06-15 12:00:00 UTC = 1718452800
+    const now_sec: i64 = 1718452800;
+
+    // Just now (0 seconds ago)
+    const t0 = try formatRelativeTime(allocator, now_sec, now_sec);
+    try std.testing.expectEqualStrings("just now", t0);
+
+    // 30 seconds ago
+    const t30s = try formatRelativeTime(allocator, now_sec - 30, now_sec);
+    try std.testing.expectEqualStrings("just now", t30s);
+
+    // 5 minutes ago
+    const t5m = try formatRelativeTime(allocator, now_sec - 300, now_sec);
+    defer allocator.free(t5m);
+    try std.testing.expectEqualStrings("5 min ago", t5m);
+
+    // 1 hour ago
+    const t1h = try formatRelativeTime(allocator, now_sec - 3600, now_sec);
+    try std.testing.expectEqualStrings("1 hr ago", t1h);
+
+    // 5 hours ago
+    const t5h = try formatRelativeTime(allocator, now_sec - 18000, now_sec);
+    defer allocator.free(t5h);
+    try std.testing.expectEqualStrings("5 hr ago", t5h);
+
+    // Yesterday (36 hours ago)
+    const t_yesterday = try formatRelativeTime(allocator, now_sec - 129600, now_sec);
+    try std.testing.expectEqualStrings("yesterday", t_yesterday);
+
+    // 10 days ago
+    const t10d = try formatRelativeTime(allocator, now_sec - 864000, now_sec);
+    defer allocator.free(t10d);
+    try std.testing.expectEqualStrings("10 days ago", t10d);
+
+    // 45 days ago (past 30-day cutoff, same year) -> "May 1"
+    const t45d = try formatRelativeTime(allocator, now_sec - (86400 * 45), now_sec);
+    defer allocator.free(t45d);
+    try std.testing.expectEqualStrings("May 1", t45d);
+}
+
+test "US3-T015a: formatRelativeTime shows year for dates in different year" {
+    const allocator = std.testing.allocator;
+    // "now" = 2024-01-15 = 1705276800
+    const now_sec: i64 = 1705276800;
+
+    // 2023-06-15 = 1686787200 (different year)
+    const old_date = try formatRelativeTime(allocator, 1686787200, now_sec);
+    defer allocator.free(old_date);
+    try std.testing.expectEqualStrings("Jun 15 2023", old_date);
+}
+
+test "epochDaysToDate converts correctly" {
+    // 1970-01-01 = epoch day 0
+    const d1 = epochDaysToDate(0);
+    try std.testing.expectEqual(@as(i32, 1970), d1.year);
+    try std.testing.expectEqual(@as(u8, 1), d1.month);
+    try std.testing.expectEqual(@as(u8, 1), d1.day);
+
+    // 2024-06-15 = epoch day 19889
+    const d2 = epochDaysToDate(19889);
+    try std.testing.expectEqual(@as(i32, 2024), d2.year);
+    try std.testing.expectEqual(@as(u8, 6), d2.month);
+    try std.testing.expectEqual(@as(u8, 15), d2.day);
+
+    // 2000-01-01 = epoch day 10957
+    const d3 = epochDaysToDate(10957);
+    try std.testing.expectEqual(@as(i32, 2000), d3.year);
+    try std.testing.expectEqual(@as(u8, 1), d3.month);
+    try std.testing.expectEqual(@as(u8, 1), d3.day);
 }

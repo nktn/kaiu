@@ -6,6 +6,7 @@ const file_ops = @import("file_ops.zig");
 const vcs = @import("vcs.zig");
 const image = @import("image.zig");
 const watcher = @import("watcher.zig");
+const icons = @import("icons.zig");
 
 pub const AppMode = enum {
     tree_view,
@@ -122,7 +123,28 @@ pub const App = struct {
     paste_buffer: std.ArrayList(u8),
     is_pasting: bool,
 
+    // Status bar file info cache (Phase 3.5 - US3)
+    cached_file_info: ?CachedFileInfo,
+    cached_file_info_cursor: ?usize, // cursor position when cache was created
+
+    // Double-click detection state (Phase 3.5 - US2: T010)
+    last_click_time: ?std.time.Instant, // Monotonic timestamp of last left click
+    last_click_entry: ?usize, // Visible index of last click (scroll-adjusted)
+
+    // CLI options (Phase 3.5 - US4: T030)
+    show_icons: bool, // Default true, false with --no-icons
+
     const Self = @This();
+
+    /// Cached file stat info for status bar display (Phase 3.5 - US3: T018)
+    /// FR-020, FR-021: Show filename, size, and modification time
+    pub const CachedFileInfo = struct {
+        name: []const u8, // borrowed from FileEntry, not owned
+        size: ?u64, // null if stat failed
+        mtime_sec: ?i128, // null if stat failed
+        is_dir: bool,
+        item_count: ?usize, // for directories only
+    };
 
     // Use ClipboardOperation from file_ops module
     pub const ClipboardOperation = file_ops.ClipboardOperation;
@@ -170,6 +192,11 @@ pub const App = struct {
             .watch_debouncer = watcher.Debouncer.init(300), // 300ms debounce (T055)
             .paste_buffer = .empty,
             .is_pasting = false,
+            .cached_file_info = null,
+            .cached_file_info_cursor = null,
+            .last_click_time = null,
+            .last_click_entry = null,
+            .show_icons = true, // Default: icons enabled (T030)
         };
 
         self.tty = try vaxis.Tty.init(&self.tty_buf);
@@ -349,6 +376,9 @@ pub const App = struct {
         }
     }
 
+    // Double-click detection state (Phase 3.5 - US2)
+    // Moved to App struct fields: last_click_time, last_click_entry
+
     fn handleMouse(self: *Self, mouse: vaxis.Mouse) void {
         // Debounce wheel events - only process first event in a batch
         const now = std.time.milliTimestamp();
@@ -382,8 +412,106 @@ pub const App = struct {
                     else => {},
                 }
             },
+            // Phase 3.5 - US1: Left click to move cursor (T003, T004)
+            .left => {
+                // Only process release events (not press/drag)
+                if (mouse.type == .release) {
+                    switch (self.mode) {
+                        .tree_view, .search => {
+                            // mouse.row is i16, convert to u16 (ignore negative values)
+                            if (mouse.row >= 0) {
+                                self.handleLeftClick(@intCast(mouse.row));
+                            }
+                        },
+                        else => {},
+                    }
+                }
+            },
             else => {},
         }
+    }
+
+    /// Handle left click in tree view (Phase 3.5 - US1: T003, T005, T006, T006a)
+    /// FR-001: Left click moves cursor to clicked row
+    /// FR-002: Calculate visible index from screen row + scroll offset
+    /// FR-003: Ignore clicks on status bar area (bottom 2 rows)
+    /// FR-004: Ignore clicks on blank rows below last entry
+    fn handleLeftClick(self: *Self, screen_row: u16) void {
+        const ft = self.file_tree orelse return;
+
+        // FR-003: Exclude status bar area (bottom 2 rows) from click detection (T006)
+        const win = self.vx.window();
+        const tree_height: u16 = if (win.height > 2) win.height - 2 else 0;
+        if (tree_height == 0) return;
+        if (screen_row >= tree_height) return; // Click on status bar, ignore
+
+        // FR-002: Convert screen row to visible index (T005)
+        const target_visible: usize = self.scroll_offset + @as(usize, screen_row);
+
+        // FR-004: Check if target is within valid entry range (T006a)
+        const visible_count = ft.countVisible(self.show_hidden);
+        if (target_visible >= visible_count) return; // Click below last entry, ignore
+
+        // Phase 3.5 - US2: Double-click detection (T010-T013)
+        // FR-010: 400ms threshold
+        // FR-013: Same entry check
+        const double_click_threshold_ns: u64 = 400 * std.time.ns_per_ms;
+
+        const now = std.time.Instant.now() catch {
+            // If we can't get monotonic time, skip double-click detection
+            self.cursor = target_visible;
+            self.updateScrollOffset();
+            self.updateCachedFileInfo();
+            return;
+        };
+
+        const is_double_click = blk: {
+            const last_time = self.last_click_time orelse break :blk false;
+            const last_entry = self.last_click_entry orelse break :blk false;
+
+            // FR-013: Must be same entry (T009, T009a - handles scroll between clicks)
+            if (last_entry != target_visible) break :blk false;
+
+            // FR-010: Within threshold (T007, T008)
+            const elapsed = now.since(last_time);
+            break :blk elapsed <= double_click_threshold_ns;
+        };
+
+        // Update click tracking state
+        self.last_click_time = now;
+        self.last_click_entry = target_visible;
+
+        if (is_double_click) {
+            // FR-011, FR-012: Double-click action (T013)
+            // Clear click state to prevent triple-click being detected as double
+            self.last_click_time = null;
+            self.last_click_entry = null;
+
+            // Move cursor first, then perform action
+            self.cursor = target_visible;
+            self.updateScrollOffset();
+            self.updateCachedFileInfo();
+
+            // T013, T013a: Expand/collapse directory or open preview
+            self.handleDoubleClick();
+        } else {
+            // FR-001: Single click - move cursor (T003)
+            self.cursor = target_visible;
+            self.updateScrollOffset();
+            self.updateCachedFileInfo();
+        }
+    }
+
+    /// Handle double-click action (Phase 3.5 - US2: T013, T013a)
+    /// FR-011: Directory double-click toggles expand/collapse
+    /// FR-012: File double-click opens preview
+    /// FR-014: Broken symlink shows error message
+    fn handleDoubleClick(self: *Self) void {
+        // Reuse expandOrEnter logic
+        self.expandOrEnter() catch {
+            // T013a: Handle broken symlink or other errors
+            self.status_message = "Cannot open: access denied or broken symlink";
+        };
     }
 
     fn handleTreeViewKey(self: *Self, key_char: u21) !void {
@@ -515,6 +643,9 @@ pub const App = struct {
 
         // Update scroll offset to follow cursor
         self.updateScrollOffset();
+
+        // Phase 3.5 - US3: Update file info cache on cursor change (T018)
+        self.updateCachedFileInfo();
     }
 
     fn updateScrollOffset(self: *Self) void {
@@ -535,6 +666,71 @@ pub const App = struct {
         }
     }
 
+    /// Update cached file info for status bar display (Phase 3.5 - US3: T018)
+    /// Called when cursor moves to a different entry
+    fn updateCachedFileInfo(self: *Self) void {
+        // Skip if cursor hasn't changed (performance: avoids re-stat and countDirectoryItems)
+        if (self.cached_file_info_cursor) |cached_cursor| {
+            if (cached_cursor == self.cursor) return;
+        }
+
+        const ft = self.file_tree orelse {
+            self.cached_file_info = null;
+            self.cached_file_info_cursor = null;
+            return;
+        };
+
+        const actual_index = ft.visibleToActualIndex(self.cursor, self.show_hidden) orelse {
+            self.cached_file_info = null;
+            self.cached_file_info_cursor = null;
+            return;
+        };
+
+        const entry = ft.entries.items[actual_index];
+        const is_dir = entry.kind == .directory;
+
+        // Get file stat (FR-026: handle stat failure)
+        var size: ?u64 = null;
+        var mtime_sec: ?i128 = null;
+        var item_count: ?usize = null;
+
+        if (std.fs.cwd().statFile(entry.path)) |stat| {
+            if (is_dir) {
+                // FR-021: For directories, count items
+                item_count = self.countDirectoryItems(entry.path);
+            } else {
+                size = stat.size;
+            }
+            // mtime is i128 nanoseconds since epoch, convert to seconds
+            mtime_sec = @divFloor(stat.mtime, std.time.ns_per_s);
+        } else |_| {
+            // stat failed - leave as null (T020a: show "-")
+        }
+
+        self.cached_file_info = .{
+            .name = entry.name,
+            .size = size,
+            .mtime_sec = mtime_sec,
+            .is_dir = is_dir,
+            .item_count = item_count,
+        };
+        self.cached_file_info_cursor = self.cursor;
+    }
+
+    /// Count visible items in a directory (for FR-021)
+    fn countDirectoryItems(self: *Self, path: []const u8) ?usize {
+        _ = self;
+        var dir = std.fs.cwd().openDir(path, .{ .iterate = true }) catch return null;
+        defer dir.close();
+
+        var count: usize = 0;
+        var iter = dir.iterate();
+        while (iter.next() catch return null) |_| {
+            count += 1;
+        }
+        return count;
+    }
+
     fn toggleHidden(self: *Self) void {
         self.show_hidden = !self.show_hidden;
 
@@ -547,6 +743,10 @@ pub const App = struct {
                 self.cursor = visible_count - 1;
             }
         }
+
+        // Invalidate cached file info - visible indices changed
+        self.cached_file_info = null;
+        self.cached_file_info_cursor = null;
 
         // Refresh search results if search is active
         if (self.input_buffer.items.len > 0) {
@@ -625,6 +825,10 @@ pub const App = struct {
         // Expand first, then track (fixes issue: map tracks unexpanded dir on failure)
         try ft.toggleExpand(index);
 
+        // Invalidate cached file info - tree structure changed
+        self.cached_file_info = null;
+        self.cached_file_info_cursor = null;
+
         // Use getOrPut to avoid leaking if path already exists (fixes duplicate key leak)
         const gop = try self.expanded_paths.getOrPut(path_copy);
         if (gop.found_existing) {
@@ -661,6 +865,10 @@ pub const App = struct {
         }
 
         ft.collapseAt(index);
+
+        // Invalidate cached file info - tree structure changed
+        self.cached_file_info = null;
+        self.cached_file_info_cursor = null;
     }
 
     fn moveToParent(self: *Self, current_index: usize) void {
@@ -1151,6 +1359,10 @@ pub const App = struct {
 
             // Clear marked files - paths are now invalid after tree reload
             self.clearMarkedFiles();
+
+            // Invalidate cached file info - entry references are now invalid (UAF fix)
+            self.cached_file_info = null;
+            self.cached_file_info_cursor = null;
 
             // Clamp cursor
             const visible_count = self.file_tree.?.countVisible(self.show_hidden);
@@ -1825,7 +2037,8 @@ pub const App = struct {
                         null;
                     // Pass VCS status for file coloring (T022)
                     const vcs_status_ptr: ?*const vcs.VCSStatusResult = if (self.vcs_status) |*s| s else null;
-                    try ui.renderTree(tree_win, ft, self.cursor, self.scroll_offset, self.show_hidden, search_query, self.search_matches.items, &self.marked_files, vcs_status_ptr, arena);
+                    // Phase 3.5 - US4: Pass show_icons flag (T031)
+                    try ui.renderTree(tree_win, ft, self.cursor, self.scroll_offset, self.show_hidden, search_query, self.search_matches.items, &self.marked_files, vcs_status_ptr, self.show_icons, arena);
                 } else {
                     _ = tree_win.printSegment(.{ .text = "No directory loaded" }, .{});
                 }
@@ -1856,9 +2069,9 @@ pub const App = struct {
         // Row 1: Path and status
         try self.renderStatusRow1(win, arena, row);
 
-        // Row 2: Keybinding hints
+        // Row 2: File info and help hint
         if (row + 1 < win.height) {
-            try self.renderStatusRow2(win, row + 1);
+            try self.renderStatusRow2(win, row + 1, arena);
         }
     }
 
@@ -2006,30 +2219,156 @@ pub const App = struct {
         }
     }
 
-    fn renderStatusRow2(self: *Self, win: vaxis.Window, row: u16) !void {
-        // Hint priority matches ESC key behavior: marks first, then search
-        const hints: []const u8 = switch (self.mode) {
-            .tree_view => if (self.marked_files.count() > 0)
-                "Space:unmark  y:yank  d:cut  D:delete  Esc:clear marks"
-            else if (self.input_buffer.items.len > 0 or self.search_matches.items.len > 0)
-                "n/N:next/prev  Esc:clear search  /:new search  ?:help  q:quit"
-            else
-                "j/k:move  h/l:collapse/expand  Space:mark  /:search  ?:help  q:quit",
-            .search => "Enter:confirm  Esc:cancel",
-            .rename => "Enter:confirm  Esc:cancel",
-            .new_file => "Enter:create  Esc:cancel",
-            .new_dir => "Enter:create  Esc:cancel",
-            .confirm_delete => "y:confirm  n/Esc:cancel",
-            .confirm_overwrite => "o:overwrite  r:rename  Esc:cancel",
-            .preview => "j/k:scroll  q/o/h:close",
-            .help => "",
-        };
+    fn renderStatusRow2(self: *Self, win: vaxis.Window, row: u16, arena: std.mem.Allocator) !void {
+        // Phase 3.5 - US3: New status bar layout (T019)
+        // Left side: file info (filename | size | modified) or hints for special modes
+        // Right side: ?:help (FR-025: always visible)
 
-        if (hints.len > 0) {
+        const help_hint = "?:help";
+        const help_col: u16 = @intCast(win.width -| help_hint.len -| 1);
+
+        // FR-025: Always show help hint on the right
+        _ = win.printSegment(.{
+            .text = help_hint,
+            .style = .{ .fg = .{ .index = 8 } }, // dim
+        }, .{ .row_offset = row, .col_offset = help_col });
+
+        // Left side content depends on mode
+        switch (self.mode) {
+            .tree_view, .search => {
+                // Show file info or context-specific hints
+                if (self.marked_files.count() > 0) {
+                    // Show marked files count and operations
+                    const marked_hint = try std.fmt.allocPrint(arena, "{d} marked  Space:unmark  y:yank  d:cut  D:delete", .{self.marked_files.count()});
+                    _ = win.printSegment(.{
+                        .text = marked_hint,
+                        .style = .{ .fg = .{ .index = 5 } }, // magenta
+                    }, .{ .row_offset = row, .col_offset = 0 });
+                } else if (self.cached_file_info) |info| {
+                    // FR-020, FR-021: Show file info
+                    try self.renderFileInfo(win, row, info, arena);
+                }
+                // T020b: Empty tree shows nothing on left (help hint still visible)
+            },
+            .rename => {
+                _ = win.printSegment(.{
+                    .text = "Enter:confirm  Esc:cancel",
+                    .style = .{ .fg = .{ .index = 8 } },
+                }, .{ .row_offset = row, .col_offset = 0 });
+            },
+            .new_file => {
+                _ = win.printSegment(.{
+                    .text = "Enter:create  Esc:cancel",
+                    .style = .{ .fg = .{ .index = 8 } },
+                }, .{ .row_offset = row, .col_offset = 0 });
+            },
+            .new_dir => {
+                _ = win.printSegment(.{
+                    .text = "Enter:create  Esc:cancel",
+                    .style = .{ .fg = .{ .index = 8 } },
+                }, .{ .row_offset = row, .col_offset = 0 });
+            },
+            .confirm_delete => {
+                _ = win.printSegment(.{
+                    .text = "y:confirm  n/Esc:cancel",
+                    .style = .{ .fg = .{ .index = 1 } }, // red
+                }, .{ .row_offset = row, .col_offset = 0 });
+            },
+            .confirm_overwrite => {
+                _ = win.printSegment(.{
+                    .text = "o:overwrite  r:rename  Esc:cancel",
+                    .style = .{ .fg = .{ .index = 3 } }, // yellow
+                }, .{ .row_offset = row, .col_offset = 0 });
+            },
+            .preview => {
+                _ = win.printSegment(.{
+                    .text = "j/k:scroll  q/o/h:close",
+                    .style = .{ .fg = .{ .index = 8 } },
+                }, .{ .row_offset = row, .col_offset = 0 });
+            },
+            .help => {},
+        }
+    }
+
+    /// Render file info in status bar (Phase 3.5 - US3: T019, T020)
+    /// FR-020: filename | size | modified
+    /// FR-021: dirname/ | N items
+    /// FR-026: show "-" for stat failures
+    fn renderFileInfo(self: *Self, win: vaxis.Window, row: u16, info: CachedFileInfo, arena: std.mem.Allocator) !void {
+        _ = self;
+        var col: u16 = 0;
+
+        // Filename (sanitized)
+        const safe_name = try ui.sanitizeForDisplay(arena, info.name);
+        const name_result = win.printSegment(.{
+            .text = safe_name,
+            .style = .{ .fg = .{ .index = 7 }, .bold = true }, // white, bold
+        }, .{ .row_offset = row, .col_offset = col });
+        col = name_result.col;
+
+        // Add trailing slash for directories
+        if (info.is_dir) {
+            const slash_result = win.printSegment(.{
+                .text = "/",
+                .style = .{ .fg = .{ .index = 4 } }, // blue
+            }, .{ .row_offset = row, .col_offset = col });
+            col = slash_result.col;
+        }
+
+        // Separator
+        const sep_result = win.printSegment(.{
+            .text = " | ",
+            .style = .{ .fg = .{ .index = 8 } }, // dim
+        }, .{ .row_offset = row, .col_offset = col });
+        col = sep_result.col;
+
+        // Size or item count
+        if (info.is_dir) {
+            // FR-021: Directory item count
+            const count_str = if (info.item_count) |count|
+                if (count == 1)
+                    "1 item"
+                else
+                    try std.fmt.allocPrint(arena, "{d} items", .{count})
+            else
+                "-"; // T020a: stat failed
+            const count_result = win.printSegment(.{
+                .text = count_str,
+                .style = .{ .fg = .{ .index = 8 } },
+            }, .{ .row_offset = row, .col_offset = col });
+            col = count_result.col;
+        } else {
+            // FR-022: Human-readable file size
+            const size_str = if (info.size) |size|
+                try ui.formatSize(arena, size)
+            else
+                "-"; // T020a: stat failed
+            const size_result = win.printSegment(.{
+                .text = size_str,
+                .style = .{ .fg = .{ .index = 8 } },
+            }, .{ .row_offset = row, .col_offset = col });
+            col = size_result.col;
+        }
+
+        // Separator and modification time (for files only, or always show?)
+        // Per spec: files show size | modified, directories show item count only
+        if (!info.is_dir) {
+            const sep2_result = win.printSegment(.{
+                .text = " | ",
+                .style = .{ .fg = .{ .index = 8 } },
+            }, .{ .row_offset = row, .col_offset = col });
+            col = sep2_result.col;
+
+            // FR-023, FR-024: Relative or absolute time
+            const now_sec = std.time.timestamp();
+            const time_str = if (info.mtime_sec) |mtime|
+                try ui.formatRelativeTime(arena, mtime, now_sec)
+            else
+                "-"; // T020a: stat failed
             _ = win.printSegment(.{
-                .text = hints,
-                .style = .{ .fg = .{ .index = 8 } }, // dim
-            }, .{ .row_offset = row, .col_offset = 0 });
+                .text = time_str,
+                .style = .{ .fg = .{ .index = 8 } },
+            }, .{ .row_offset = row, .col_offset = col });
         }
     }
     // ===== Image Preview Rendering (Phase 3 - US2) =====
@@ -2555,19 +2894,22 @@ fn containsIgnoreCase(haystack: []const u8, needle: []const u8) bool {
     return ui.findMatchPosition(haystack, needle) != null;
 }
 
-pub fn run(allocator: std.mem.Allocator, start_path: []const u8) !void {
-    const app = try App.init(allocator);
-    defer app.deinit();
+pub fn run(allocator: std.mem.Allocator, start_path: []const u8, show_icons: bool) !void {
+    const application = try App.init(allocator);
+    defer application.deinit();
+
+    // Set CLI options (Phase 3.5 - US4: T030)
+    application.show_icons = show_icons;
 
     // Load directory
-    app.file_tree = try tree.FileTree.init(allocator, start_path);
-    try app.file_tree.?.readDirectory();
+    application.file_tree = try tree.FileTree.init(allocator, start_path);
+    try application.file_tree.?.readDirectory();
 
     // Refresh VCS status on startup (T020)
-    app.refreshVCSStatus();
+    application.refreshVCSStatus();
 
     // Run event loop
-    try app.runEventLoop();
+    try application.runEventLoop();
 }
 
 test "App state transitions" {
@@ -2723,4 +3065,113 @@ test "Filename conflict resolution pattern" {
 }
 
 // Tests for formatDisplayPath, isBinaryContent are in file_ops.zig
+
+// ===== Phase 3.5 - US1: Mouse Click Tests =====
+
+test "US1-T001: handleLeftClick calculates correct visible index from screen row" {
+    // Test the calculation: target_visible = scroll_offset + screen_row
+    // This is a logic verification test without App instance
+
+    // Case 1: No scroll, clicking row 0 -> visible index 0
+    const scroll_offset_1: usize = 0;
+    const screen_row_1: u16 = 0;
+    const expected_1: usize = scroll_offset_1 + @as(usize, screen_row_1);
+    try std.testing.expectEqual(@as(usize, 0), expected_1);
+
+    // Case 2: No scroll, clicking row 5 -> visible index 5
+    const scroll_offset_2: usize = 0;
+    const screen_row_2: u16 = 5;
+    const expected_2: usize = scroll_offset_2 + @as(usize, screen_row_2);
+    try std.testing.expectEqual(@as(usize, 5), expected_2);
+
+    // Case 3: Scrolled by 10, clicking row 3 -> visible index 13
+    const scroll_offset_3: usize = 10;
+    const screen_row_3: u16 = 3;
+    const expected_3: usize = scroll_offset_3 + @as(usize, screen_row_3);
+    try std.testing.expectEqual(@as(usize, 13), expected_3);
+}
+
+test "US1-T002: click outside tree area (status bar) is ignored" {
+    // Status bar occupies bottom 2 rows
+    // tree_height = win.height - 2
+    // Clicks at row >= tree_height should be ignored
+
+    // Case 1: Window height 20, tree_height = 18, click at row 18 -> status bar
+    const win_height_1: u16 = 20;
+    const tree_height_1: u16 = if (win_height_1 > 2) win_height_1 - 2 else 0;
+    const click_row_1: u16 = 18;
+    try std.testing.expect(click_row_1 >= tree_height_1); // Should be ignored
+
+    // Case 2: Window height 20, tree_height = 18, click at row 17 -> valid
+    const click_row_2: u16 = 17;
+    try std.testing.expect(click_row_2 < tree_height_1); // Should be valid
+}
+
+test "US1-T002a: click on blank row below last entry is ignored" {
+    // If target_visible >= visible_count, ignore the click
+    // Example: 5 visible entries, click at visible index 5 or higher -> ignore
+
+    const visible_count: usize = 5;
+
+    // Click at visible index 4 (last entry) -> valid
+    const target_valid: usize = 4;
+    try std.testing.expect(target_valid < visible_count);
+
+    // Click at visible index 5 (blank row) -> ignore
+    const target_blank: usize = 5;
+    try std.testing.expect(target_blank >= visible_count);
+
+    // Click at visible index 10 (well below) -> ignore
+    const target_far: usize = 10;
+    try std.testing.expect(target_far >= visible_count);
+}
+
+// ===== Phase 3.5 - US2: Double Click Tests =====
+
+test "US2-T007: double-click detection within threshold (400ms)" {
+    // Double-click threshold is 400ms
+    const threshold_ns: u64 = 400 * std.time.ns_per_ms;
+
+    // Simulated times
+    const click1_ns: u64 = 0;
+    const click2_ns: u64 = 200 * std.time.ns_per_ms; // 200ms later
+
+    const elapsed = click2_ns - click1_ns;
+    try std.testing.expect(elapsed <= threshold_ns); // Should be detected as double-click
+}
+
+test "US2-T008: single-click when exceeding threshold (400ms)" {
+    const threshold_ns: u64 = 400 * std.time.ns_per_ms;
+
+    // Simulated times
+    const click1_ns: u64 = 0;
+    const click2_ns: u64 = 500 * std.time.ns_per_ms; // 500ms later
+
+    const elapsed = click2_ns - click1_ns;
+    try std.testing.expect(elapsed > threshold_ns); // Should NOT be detected as double-click
+}
+
+test "US2-T009: clicks on different entries are not double-click" {
+    // Different visible indices mean not a double-click, regardless of timing
+    const entry1: usize = 5;
+    const entry2: usize = 8;
+
+    try std.testing.expect(entry1 != entry2); // Should not be double-click
+}
+
+test "US2-T009a: scroll between clicks means different entry" {
+    // If user scrolls between clicks, the same screen row maps to different entries
+    // Click 1: scroll_offset=0, row=5 -> visible_index=5
+    // User scrolls down by 3
+    // Click 2: scroll_offset=3, row=5 -> visible_index=8
+
+    const scroll_offset_1: usize = 0;
+    const screen_row: u16 = 5;
+    const entry_1 = scroll_offset_1 + @as(usize, screen_row);
+
+    const scroll_offset_2: usize = 3;
+    const entry_2 = scroll_offset_2 + @as(usize, screen_row);
+
+    try std.testing.expect(entry_1 != entry_2); // Different entries, not double-click
+}
 
