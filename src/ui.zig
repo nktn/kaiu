@@ -159,8 +159,10 @@ fn renderEntry(
         const icon_buf = icon.toUtf8();
         // FR-035: Use gwidth for proper cell width measurement
         const icon_len = std.unicode.utf8CodepointSequenceLength(icon.codepoint) catch 3;
-        const icon_slice = icon_buf[0..icon_len];
-        const icon_width = vaxis.gwidth.gwidth(icon_slice, .unicode);
+
+        // Copy to arena to ensure lifetime extends beyond printSegment
+        const icon_text = try arena.dupe(u8, icon_buf[0..icon_len]);
+        const icon_width = vaxis.gwidth.gwidth(icon_text, .unicode);
 
         // Icon color (use icon's color or default)
         const icon_style: vaxis.Style = if (icon.color) |c|
@@ -169,7 +171,7 @@ fn renderEntry(
             .{};
 
         const icon_result = win.printSegment(.{
-            .text = icon_slice,
+            .text = icon_text,
             .style = icon_style,
         }, .{ .row_offset = row, .col_offset = col });
         _ = icon_result; // col updated below
