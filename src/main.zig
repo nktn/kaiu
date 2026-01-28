@@ -16,6 +16,11 @@ pub const CliOptions = struct {
     show_icons: bool,
 };
 
+/// Config file settings (~/.config/kaiu/config)
+pub const Config = struct {
+    show_icons: ?bool = null, // null means not set in config
+};
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer {
@@ -26,11 +31,14 @@ pub fn main() !void {
     }
     const allocator = gpa.allocator();
 
-    // Parse command line arguments (T029)
+    // Load config file first (lowest priority)
+    const config = loadConfig(allocator);
+
+    // Parse command line arguments (T029) - CLI overrides config
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
 
-    const cli_options = parseCliArgs(args);
+    const cli_options = parseCliArgs(args, config);
 
     // Expand ~ to home directory and validate path
     const result = expandAndValidatePath(allocator, cli_options.path) catch |err| {
@@ -50,14 +58,19 @@ pub fn main() !void {
 
 /// Parse CLI arguments (Phase 3.5 - US4: T029)
 /// FR-033: --no-icons flag to disable icon display
-fn parseCliArgs(args: []const [:0]const u8) CliOptions {
-    var show_icons: bool = true;
+/// Priority: CLI flags > config file > defaults
+fn parseCliArgs(args: []const [:0]const u8, config: Config) CliOptions {
+    // Start with config value or default (true)
+    var show_icons: bool = config.show_icons orelse true;
     var path_arg: []const u8 = ".";
 
     // Skip argv[0] (program name)
     for (args[1..]) |arg| {
         if (std.mem.eql(u8, arg, "--no-icons")) {
             show_icons = false;
+        } else if (std.mem.eql(u8, arg, "--icons")) {
+            // Allow explicit --icons to override config
+            show_icons = true;
         } else if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
             printUsage();
             std.process.exit(0);
@@ -82,9 +95,59 @@ fn printUsage() void {
         \\
         \\Options:
         \\  --no-icons        Disable Nerd Font icons
+        \\  --icons           Enable Nerd Font icons (override config)
         \\  -h, --help        Show this help message
         \\
+        \\Config: ~/.config/kaiu/config
+        \\  show_icons = false
+        \\
     , .{});
+}
+
+/// Load config from ~/.config/kaiu/config
+/// Returns Config with values from file, or defaults if file doesn't exist
+fn loadConfig(allocator: std.mem.Allocator) Config {
+    const home = std.posix.getenv("HOME") orelse return .{};
+
+    const config_path = std.fmt.allocPrint(allocator, "{s}/.config/kaiu/config", .{home}) catch return .{};
+    defer allocator.free(config_path);
+
+    const file = std.fs.cwd().openFile(config_path, .{}) catch return .{};
+    defer file.close();
+
+    // Read entire file (config files are small)
+    const content = file.readToEndAlloc(allocator, 4096) catch return .{};
+    defer allocator.free(content);
+
+    return parseConfig(content);
+}
+
+/// Parse config content into Config struct
+fn parseConfig(content: []const u8) Config {
+    var config = Config{};
+    var lines = std.mem.splitScalar(u8, content, '\n');
+
+    while (lines.next()) |line| {
+        // Skip empty lines and comments
+        const trimmed = std.mem.trim(u8, line, " \t\r");
+        if (trimmed.len == 0 or trimmed[0] == '#') continue;
+
+        // Parse "key = value" format
+        if (std.mem.indexOf(u8, trimmed, "=")) |eq_pos| {
+            const key = std.mem.trim(u8, trimmed[0..eq_pos], " \t");
+            const value = std.mem.trim(u8, trimmed[eq_pos + 1 ..], " \t");
+
+            if (std.mem.eql(u8, key, "show_icons")) {
+                if (std.mem.eql(u8, value, "false")) {
+                    config.show_icons = false;
+                } else if (std.mem.eql(u8, value, "true")) {
+                    config.show_icons = true;
+                }
+            }
+        }
+    }
+
+    return config;
 }
 
 /// Expand ~ to home directory and validate path exists and is a directory.
@@ -219,4 +282,36 @@ test "expandAndValidatePath returns absolute path for relative paths" {
 
     try std.testing.expect(result.path[0] == '/');
     try std.testing.expectEqualStrings(abs_path, result.path);
+}
+
+// Config file tests
+test "parseConfig with show_icons = false" {
+    const config = parseConfig("show_icons = false\n");
+    try std.testing.expectEqual(false, config.show_icons.?);
+}
+
+test "parseConfig with show_icons = true" {
+    const config = parseConfig("show_icons = true\n");
+    try std.testing.expectEqual(true, config.show_icons.?);
+}
+
+test "parseConfig with comments and empty lines" {
+    const config = parseConfig(
+        \\# This is a comment
+        \\
+        \\show_icons = false
+        \\# Another comment
+        \\
+    );
+    try std.testing.expectEqual(false, config.show_icons.?);
+}
+
+test "parseConfig with empty content" {
+    const config = parseConfig("");
+    try std.testing.expect(config.show_icons == null);
+}
+
+test "parseConfig ignores unknown keys" {
+    const config = parseConfig("unknown_key = value\nshow_icons = false\n");
+    try std.testing.expectEqual(false, config.show_icons.?);
 }
