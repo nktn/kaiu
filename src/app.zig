@@ -669,7 +669,7 @@ pub const App = struct {
     /// Update cached file info for status bar display (Phase 3.5 - US3: T018)
     /// Called when cursor moves to a different entry
     fn updateCachedFileInfo(self: *Self) void {
-        // Skip if cursor hasn't changed
+        // Skip if cursor hasn't changed (performance: avoids re-stat and countDirectoryItems)
         if (self.cached_file_info_cursor) |cached_cursor| {
             if (cached_cursor == self.cursor) return;
         }
@@ -1347,6 +1347,10 @@ pub const App = struct {
 
             // Clear marked files - paths are now invalid after tree reload
             self.clearMarkedFiles();
+
+            // Invalidate cached file info - entry references are now invalid (UAF fix)
+            self.cached_file_info = null;
+            self.cached_file_info_cursor = null;
 
             // Clamp cursor
             const visible_count = self.file_tree.?.countVisible(self.show_hidden);

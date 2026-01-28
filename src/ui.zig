@@ -96,6 +96,11 @@ fn getFileVCSStatus(ft: *tree.FileTree, path: []const u8, vcs_status: ?*const vc
 }
 
 /// Check if index is in matches list (linear search, but matches are typically few)
+/// Check if index is in matches array.
+/// O(n) linear scan, but:
+/// - matches array is typically small (few search hits)
+/// - called only for visible entries (~30 rows)
+/// - total cost: O(visible_rows * match_count), acceptable for TUI
 fn isInMatches(index: usize, matches: []const usize) bool {
     for (matches) |m| {
         if (m == index) return true;

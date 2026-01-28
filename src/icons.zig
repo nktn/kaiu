@@ -26,12 +26,9 @@ pub const Icon = struct {
         return buf;
     }
 
-    /// Get UTF-8 string slice (without trailing zeros)
-    pub fn toSlice(self: Icon) []const u8 {
-        const buf = self.toUtf8();
-        const len = std.unicode.utf8CodepointSequenceLength(self.codepoint) catch 3;
-        return buf[0..len];
-    }
+    // NOTE: toSlice() was removed - it returned a dangling slice to stack-local buffer.
+    // Use toUtf8() and slice manually with known length, or use vaxis.Cell which
+    // accepts the [4]u8 array directly.
 };
 
 // ===== Directory Icons (T024) =====
