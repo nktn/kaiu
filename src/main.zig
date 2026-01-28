@@ -112,11 +112,24 @@ fn loadConfig(allocator: std.mem.Allocator) Config {
     const config_path = std.fmt.allocPrint(allocator, "{s}/.config/kaiu/config", .{home}) catch return .{};
     defer allocator.free(config_path);
 
-    const file = std.fs.cwd().openFile(config_path, .{}) catch return .{};
+    const file = std.fs.cwd().openFile(config_path, .{}) catch |err| {
+        // FileNotFound is normal (no config file), other errors should warn
+        if (err != error.FileNotFound) {
+            std.debug.print("Warning: Cannot open config file: {s}\n", .{config_path});
+        }
+        return .{};
+    };
     defer file.close();
 
-    // Read entire file (config files are small)
-    const content = file.readToEndAlloc(allocator, 4096) catch return .{};
+    // Read entire file (config files are small, max 4KB)
+    const content = file.readToEndAlloc(allocator, 4096) catch |err| {
+        if (err == error.StreamTooLong) {
+            std.debug.print("Warning: Config file too large (max 4KB): {s}\n", .{config_path});
+        } else {
+            std.debug.print("Warning: Cannot read config file: {s}\n", .{config_path});
+        }
+        return .{};
+    };
     defer allocator.free(content);
 
     return parseConfig(content);
@@ -132,10 +145,15 @@ fn parseConfig(content: []const u8) Config {
         const trimmed = std.mem.trim(u8, line, " \t\r");
         if (trimmed.len == 0 or trimmed[0] == '#') continue;
 
-        // Parse "key = value" format
+        // Parse "key = value" format (supports inline comments with #)
         if (std.mem.indexOf(u8, trimmed, "=")) |eq_pos| {
             const key = std.mem.trim(u8, trimmed[0..eq_pos], " \t");
-            const value = std.mem.trim(u8, trimmed[eq_pos + 1 ..], " \t");
+            var value_part = trimmed[eq_pos + 1 ..];
+            // Strip inline comments
+            if (std.mem.indexOf(u8, value_part, "#")) |comment_pos| {
+                value_part = value_part[0..comment_pos];
+            }
+            const value = std.mem.trim(u8, value_part, " \t");
 
             if (std.mem.eql(u8, key, "show_icons")) {
                 if (std.mem.eql(u8, value, "false")) {
@@ -313,5 +331,10 @@ test "parseConfig with empty content" {
 
 test "parseConfig ignores unknown keys" {
     const config = parseConfig("unknown_key = value\nshow_icons = false\n");
+    try std.testing.expectEqual(false, config.show_icons.?);
+}
+
+test "parseConfig with inline comments" {
+    const config = parseConfig("show_icons = false # disable for tofu\n");
     try std.testing.expectEqual(false, config.show_icons.?);
 }
