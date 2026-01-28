@@ -71,13 +71,14 @@
 
 - [ ] T007 [US2] Add test for double-click detection (within 400ms) in src/app.zig
 - [ ] T008 [US2] Add test for single-click (exceeds 400ms) in src/app.zig
-- [ ] T009 [US2] Add test for clicks on different rows (not double-click) in src/app.zig
+- [ ] T009 [US2] Add test for clicks on different entries (not double-click) in src/app.zig
+- [ ] T009a [US2] Add test for scroll between clicks (same row, different entry) in src/app.zig
 
 ### Implementation for User Story 2
 
-- [ ] T010 [US2] Add last_click_time and last_click_row fields to App in src/app.zig
-- [ ] T011 [US2] Add double_click_threshold_ms constant (400ms) in src/app.zig
-- [ ] T012 [US2] Implement double-click detection in handleLeftClick() in src/app.zig
+- [ ] T010 [US2] Add last_click_time (Instant) and last_click_entry (visible index) fields to App in src/app.zig
+- [ ] T011 [US2] Add double_click_threshold_ns constant (400ms) in src/app.zig
+- [ ] T012 [US2] Implement double-click detection using monotonic time and entry identity in handleLeftClick() in src/app.zig
 - [ ] T013 [US2] Call expandOrEnter() on double-click in src/app.zig
 
 **Checkpoint**: Double-click works - US2 complete, ready for manual testing
@@ -94,14 +95,17 @@
 
 - [ ] T014 [P] [US3] Add test for formatSize() edge cases (0B, 1K, 1M, 1G) in src/ui.zig
 - [ ] T015 [P] [US3] Add test for formatRelativeTime() (just now, minutes, hours, days) in src/ui.zig
+- [ ] T015a [P] [US3] Add test for stat failure handling (show "-") in src/ui.zig
 
 ### Implementation for User Story 3
 
 - [ ] T016 [P] [US3] Implement formatSize() function in src/ui.zig
-- [ ] T017 [P] [US3] Implement formatRelativeTime() function in src/ui.zig
-- [ ] T018 [US3] Add getFileInfo() to retrieve stat for cursor entry in src/ui.zig
+- [ ] T017 [P] [US3] Implement formatRelativeTime() function (English format fixed) in src/ui.zig
+- [ ] T018 [US3] Add CachedFileInfo struct and cache on cursor change in src/app.zig
 - [ ] T019 [US3] Update renderStatusBar() to show file info layout in src/ui.zig
 - [ ] T020 [US3] Handle directory case (show item count instead of size) in src/ui.zig
+- [ ] T020a [US3] Handle stat failure (show "-" for size/time) in src/ui.zig
+- [ ] T020b [US3] Handle empty tree (show path only) in src/ui.zig
 
 **Checkpoint**: Status bar shows file info - US3 complete, ready for manual testing
 
@@ -128,7 +132,7 @@
 - [ ] T028 [US4] Implement getIcon() function in src/icons.zig
 - [ ] T029 [P] [US4] Add --no-icons CLI flag parsing in src/main.zig
 - [ ] T030 [US4] Add show_icons field to App and pass from main in src/app.zig
-- [ ] T031 [US4] Update renderEntry() to prepend icon before filename in src/ui.zig
+- [ ] T031 [US4] Update renderEntry() to prepend icon before filename using vaxis stringWidth() in src/ui.zig
 - [ ] T032 [US4] Add icons module to build.zig
 
 **Checkpoint**: Icons display - US4 complete, ready for manual testing

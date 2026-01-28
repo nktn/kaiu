@@ -33,16 +33,20 @@
 
 No new `AppMode` states required. Mouse interactions happen within existing states:
 - `tree_view`: Mouse click moves cursor, double-click expands/opens
-- `preview`: Mouse click closes preview (optional UX enhancement)
+
+**Note**: Preview mode mouse click is out of scope for Phase 3.5.
 
 **New App fields**:
 ```zig
 // Double-click detection (US2)
-last_click_time: i64,           // Timestamp of last left click
-last_click_row: ?u16,           // Row of last click (screen coordinates)
+last_click_time: std.time.Instant,  // Monotonic timestamp of last left click
+last_click_entry: ?usize,           // Visible index of last click (scroll-adjusted)
 
 // CLI options (US4)
 show_icons: bool,               // Default true, false with --no-icons
+
+// Status bar cache (US3)
+cached_file_info: ?CachedFileInfo,  // Cached stat info, updated on cursor change
 ```
 
 ### Memory Strategy
@@ -50,9 +54,19 @@ show_icons: bool,               // Default true, false with --no-icons
 | Feature | Memory Approach | Rationale |
 |---------|-----------------|-----------|
 | Icon mapping | Comptime static | Icons are known at compile time, zero runtime allocation |
-| File stat | On-demand | Query stat only when rendering status bar for cursor entry |
+| File stat | On cursor change | Cache stat result, update only when cursor moves to different entry |
 | Relative time | render_arena | Temporary strings freed each frame |
 | Status bar text | render_arena | Per-frame allocation, reset on next render |
+
+### Screen Layout Geometry
+
+```
+Row 0 to (height - 3): File tree area (clickable)
+Row (height - 2):      Status bar line 1 (path + status message)
+Row (height - 1):      Status bar line 2 (file info + help hint)
+```
+
+Click detection excludes the bottom 2 rows (status bar).
 
 ## Implementation Phases
 
@@ -120,28 +134,33 @@ fn handleLeftClick(self: *Self, screen_row: u16) void {
 **Key implementation**:
 ```zig
 // In App struct
-last_click_time: i64 = 0,
-last_click_row: ?u16 = null,
+last_click_time: ?std.time.Instant = null,
+last_click_entry: ?usize = null,  // visible index (scroll-adjusted)
 
-const double_click_threshold_ms: i64 = 400;
+const double_click_threshold_ns: u64 = 400 * std.time.ns_per_ms;
 
 fn handleLeftClick(self: *Self, screen_row: u16) void {
     // ... bounds checking from Phase 1 ...
 
-    const now = std.time.milliTimestamp();
-    const is_double_click = self.last_click_row == screen_row and
-        (now - self.last_click_time) <= double_click_threshold_ms;
+    // Calculate visible index (scroll-adjusted entry identity)
+    const target_visible = self.scroll_offset + screen_row;
 
-    // Update click tracking
+    const now = std.time.Instant.now() catch return;
+    const is_double_click = if (self.last_click_time) |last_time| blk: {
+        const elapsed = now.since(last_time);
+        break :blk self.last_click_entry == target_visible and
+            elapsed <= double_click_threshold_ns;
+    } else false;
+
+    // Update click tracking (by entry identity, not screen row)
     self.last_click_time = now;
-    self.last_click_row = screen_row;
+    self.last_click_entry = target_visible;
 
     if (is_double_click) {
         // Double-click: expand/collapse or preview
         self.handleDoubleClick();
     } else {
         // Single click: move cursor
-        const target_visible = self.scroll_offset + screen_row;
         const delta = @as(isize, @intCast(target_visible)) - @as(isize, @intCast(self.cursor));
         self.moveCursor(delta);
     }
@@ -156,8 +175,9 @@ fn handleDoubleClick(self: *Self) !void {
 **FR coverage**: FR-010, FR-011, FR-012, FR-013
 
 **Risks**:
-- Must track both time and position to avoid false positives
-- Rapid clicking different rows should not trigger double-click
+- Must track both time and entry identity to avoid false positives
+- Uses monotonic time (std.time.Instant) to avoid wall-clock drift issues
+- Rapid clicking different entries should not trigger double-click
 
 ---
 
@@ -167,10 +187,11 @@ fn handleDoubleClick(self: *Self) !void {
 
 **Technical approach**:
 
-1. **Add stat retrieval** in render path for cursor entry
+1. **Cache stat on cursor change** - only call stat() when cursor moves to a different entry
 2. **Format file size** with human-readable units (B, K, M, G)
 3. **Format relative time** for mtime (just now, 5 min ago, yesterday, etc.)
 4. **Update status bar layout** to show: `filename | size | modified`
+5. **Handle stat failures** - show "-" for size/time when stat() fails
 
 **Key implementation**:
 
@@ -225,11 +246,12 @@ For directories:
 Line 2: dirname/ | 3 items                    ?:help
 ```
 
-**FR coverage**: FR-020, FR-021, FR-022, FR-023, FR-024, FR-025
+**FR coverage**: FR-020, FR-021, FR-022, FR-023, FR-024, FR-025, FR-026, FR-027
 
 **Risks**:
-- stat() is I/O; ensure it's only called for cursor entry, not all entries
-- Mtime format requires date parsing (use stdlib epoch handling)
+- stat() is I/O; cache on cursor change, not on every render
+- Mtime format uses epoch math (English format, no locale/timezone complexity)
+- Handle stat failures gracefully (permission denied, broken symlinks)
 
 ---
 
@@ -327,8 +349,8 @@ const raw_path = path_arg orelse ".";
 
 **Risks**:
 - Nerd Font not installed: Icons will show as replacement character
-- No automatic detection possible; `--no-icons` is opt-out
-- Icon width may vary; assume 2 character width in column calculations
+- No automatic detection possible; `--no-icons` is explicit opt-out
+- Icon width handling: use vaxis `stringWidth()` for actual cell width measurement, not fixed 2-char assumption
 
 ---
 
@@ -337,20 +359,25 @@ const raw_path = path_arg orelse ".";
 | Decision | Options Considered | Choice | Rationale |
 |----------|-------------------|--------|-----------|
 | Double-click threshold | 300ms / 400ms / 500ms | 400ms | Standard OS default |
+| Double-click timing | Wall clock / Monotonic | Monotonic (std.time.Instant) | Immune to NTP/time adjustments |
+| Double-click target | Screen row / Entry identity | Entry identity (visible index) | Robust under scrolling |
 | Icon module | Inline in ui.zig / Separate icons.zig | Separate | Better separation of concerns, easier to expand |
 | Icon mapping | HashMap / StaticStringMap | StaticStringMap | Zero runtime allocation, comptime safety |
-| Stat for status bar | Always / On cursor change | On render | Simple, stat is fast, called once per frame |
+| Icon width | Fixed 2-char / Dynamic measurement | Dynamic (vaxis stringWidth) | Handles variable-width glyphs |
+| Stat for status bar | Every render / On cursor change | On cursor change | Avoid I/O on every frame |
 | --no-icons default | On / Off | On (icons enabled) | Modern terminals support Nerd Fonts |
+| Nerd Font detection | Auto-detect / Manual flag | Manual (--no-icons) | No reliable detection method |
 
 ## Risks & Mitigations
 
 | Risk | Impact | Probability | Mitigation |
 |------|--------|-------------|------------|
 | Click detection off-by-one | Medium | Medium | Thorough testing with scroll offset |
-| Status bar stat I/O latency | Low | Low | stat() is typically <1ms |
-| Icon rendering breaks layout | Medium | Medium | Fixed 2-char width, test without Nerd Font |
-| Double-click false positives | Medium | Low | Track both time AND row |
-| Date formatting complexity | Low | Medium | Use simple epoch math, no timezone |
+| Status bar stat I/O latency | Low | Low | Cache on cursor change, not every render |
+| Icon rendering breaks layout | Medium | Medium | Use vaxis stringWidth(), test without Nerd Font |
+| Double-click false positives | Medium | Low | Track both monotonic time AND entry identity |
+| Date formatting complexity | Low | Medium | Use simple epoch math, English format fixed |
+| Scroll between clicks | Medium | Low | Track entry identity (visible index), not screen row |
 
 ## Test Strategy
 
