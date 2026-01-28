@@ -48,6 +48,7 @@
 
 - [ ] T001 [US1] Add test for handleLeftClick with valid row in src/app.zig
 - [ ] T002 [US1] Add test for click outside tree area (status bar) in src/app.zig
+- [ ] T002a [US1] Add test for click on blank row below last entry in src/app.zig
 
 ### Implementation for User Story 1
 
@@ -55,6 +56,7 @@
 - [ ] T004 [US1] Add left-click detection in handleMouse() in src/app.zig
 - [ ] T005 [US1] Calculate visible index from screen row + scroll offset in src/app.zig
 - [ ] T006 [US1] Exclude status bar area (bottom 2 rows) from click detection in src/app.zig
+- [ ] T006a [US1] Ignore clicks on blank rows below last entry in src/app.zig
 
 **Checkpoint**: Mouse click moves cursor - US1 complete, ready for manual testing
 
@@ -80,6 +82,7 @@
 - [ ] T011 [US2] Add double_click_threshold_ns constant (400ms) in src/app.zig
 - [ ] T012 [US2] Implement double-click detection using monotonic time and entry identity in handleLeftClick() in src/app.zig
 - [ ] T013 [US2] Call expandOrEnter() on double-click in src/app.zig
+- [ ] T013a [US2] Handle broken symlink double-click with error message in src/app.zig
 
 **Checkpoint**: Double-click works - US2 complete, ready for manual testing
 
@@ -100,7 +103,7 @@
 ### Implementation for User Story 3
 
 - [ ] T016 [P] [US3] Implement formatSize() function in src/ui.zig
-- [ ] T017 [P] [US3] Implement formatRelativeTime() function (English format fixed) in src/ui.zig
+- [ ] T017 [P] [US3] Implement formatRelativeTime() function (English format, 30-day cutoff) in src/ui.zig
 - [ ] T018 [US3] Add CachedFileInfo struct and cache on cursor change in src/app.zig
 - [ ] T019 [US3] Update renderStatusBar() to show file info layout in src/ui.zig
 - [ ] T020 [US3] Handle directory case (show item count instead of size) in src/ui.zig
