@@ -744,6 +744,10 @@ pub const App = struct {
             }
         }
 
+        // Invalidate cached file info - visible indices changed
+        self.cached_file_info = null;
+        self.cached_file_info_cursor = null;
+
         // Refresh search results if search is active
         if (self.input_buffer.items.len > 0) {
             self.updateSearchResults() catch {};
@@ -821,6 +825,10 @@ pub const App = struct {
         // Expand first, then track (fixes issue: map tracks unexpanded dir on failure)
         try ft.toggleExpand(index);
 
+        // Invalidate cached file info - tree structure changed
+        self.cached_file_info = null;
+        self.cached_file_info_cursor = null;
+
         // Use getOrPut to avoid leaking if path already exists (fixes duplicate key leak)
         const gop = try self.expanded_paths.getOrPut(path_copy);
         if (gop.found_existing) {
@@ -857,6 +865,10 @@ pub const App = struct {
         }
 
         ft.collapseAt(index);
+
+        // Invalidate cached file info - tree structure changed
+        self.cached_file_info = null;
+        self.cached_file_info_cursor = null;
     }
 
     fn moveToParent(self: *Self, current_index: usize) void {
