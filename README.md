@@ -12,7 +12,7 @@ TUI file explorer with Vim keybindings, written in Zig.
 - File operations (mark, yank/cut/paste, delete, rename, create)
 - Clipboard support (OSC 52)
 - Mouse support (click to navigate, double-click to expand/preview)
-- **Nerd Font icons** - File type icons with `--no-icons` flag to disable
+- **Nerd Font icons** - File type icons (disable via config or `--no-icons`)
 - **VCS integration** - JuJutsu / Git status colors and branch display (JJ preferred when both exist)
 - **Image preview** - PNG, JPG, GIF, WebP via Kitty Graphics Protocol
 - **Drag & drop** - Drop files from Finder to copy into current directory
@@ -39,7 +39,19 @@ kaiu              # Open current directory
 kaiu ~/projects   # Open specific directory
 kaiu ~/.config    # Tilde expansion supported
 kaiu --no-icons   # Disable Nerd Font icons
+kaiu --icons      # Enable icons (override config)
 ```
+
+## Configuration
+
+Config file: `~/.config/kaiu/config`
+
+```
+# Disable Nerd Font icons (for terminals without Nerd Font)
+show_icons = false
+```
+
+Priority: CLI flags > config file > defaults
 
 ## Keybindings
 
