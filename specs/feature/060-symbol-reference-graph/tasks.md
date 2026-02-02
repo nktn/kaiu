@@ -16,7 +16,7 @@
 | Phase 1: Setup | pending | 0/3 |
 | Phase 2: Foundational (LSP Infrastructure) | pending | 0/8 |
 | Phase 3: User Story 1 (Reference Search) | pending | 0/12 |
-| Phase 4: User Story 2 (Graph Visualization) | pending | 0/10 |
+| Phase 4: User Story 2 (Graph Visualization) | pending | 0/12 |
 | Phase 5: User Story 3 (Filtering) | pending | 0/6 |
 | Phase 6: Polish & Edge Cases | pending | 0/6 |
 
@@ -84,15 +84,18 @@
 
 ### Implementation for User Story 2
 
-- [ ] T024 [US2] Implement `GraphNode` struct with reference and edges in `src/graph.zig`
-- [ ] T025 [US2] Implement `ReferenceGraph` struct with nodes ArrayList in `src/graph.zig`
-- [ ] T026 [US2] Implement `buildFromReferences()` to construct graph from reference list in `src/graph.zig`
+- [ ] T024 [US2] Implement `callHierarchy/prepareCallHierarchy` request in `src/lsp.zig`
+- [ ] T024b [US2] Implement `callHierarchy/incomingCalls` request in `src/lsp.zig`
+- [ ] T024c [US2] Implement `callHierarchy/outgoingCalls` request in `src/lsp.zig`
+- [ ] T025 [US2] Implement `CallHierarchyItem` struct in `src/graph.zig`
+- [ ] T026 [US2] Implement `CallGraphNode` and `CallHierarchyGraph` structs in `src/graph.zig`
+- [ ] T026b [US2] Implement `buildFromCallHierarchy()` to construct graph from call hierarchy in `src/graph.zig`
 - [ ] T027 [US2] Implement `toDot()` to generate Graphviz DOT format in `src/graph.zig`
 - [ ] T028 [US2] Implement `toTextTree()` for text fallback in `src/graph.zig`
 - [ ] T029 [US2] Add `AppMode.reference_graph` enum value in `src/app.zig`
 - [ ] T030 [US2] Implement Graphviz external process call (dot -> PNG) in `src/graph.zig`
 - [ ] T031 [US2] Implement graph display using Kitty Graphics Protocol in `src/app.zig`
-- [ ] T032 [US2] Implement text fallback when Kitty Graphics unavailable in `src/ui.zig`
+- [ ] T032 [US2] Implement text fallback when Kitty Graphics or Graphviz unavailable in `src/ui.zig`
 - [ ] T033 [US2] Implement `G` key (list -> graph) and `l` key (graph -> list) in `src/app.zig`
 
 **Checkpoint**: User Story 2 complete - `G` shows graph, `l` returns to list, fallback works
@@ -217,5 +220,7 @@ Task: T023 "Implement 'Language server not available' message"
 - LSP (zls) must be installed by user - graceful error if missing
 - Graphviz (dot) optional - text fallback if missing
 - $EDITOR must be set - use default editor if missing
-- Timeout: 5 seconds for LSP requests
+- Timeout: 3 seconds for LSP requests (aligned with SC-002)
 - Memory: GPA for LSP/references, Arena for graph rendering
+- `gr` key only works in Preview mode (not TreeView)
+- US2 uses `callHierarchy/*` (not just `textDocument/references`) for meaningful edges

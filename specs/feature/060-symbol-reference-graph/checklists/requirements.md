@@ -32,9 +32,12 @@
 ## Notes
 
 - Target Persona (田中さん) を Phase 1-3.5 からの継続として定義
-- LSP 連携は Zig (zls) のみを初期スコープとし、他言語は Out of Scope
+- 言語サーバー連携は Zig (zls) のみを初期スコープとし、他言語は Out of Scope
 - グラフ表示のフォールバック（テキストツリー）を明記
-- Graphviz 依存は Assumptions に記載（実装時に決定）
+- 外部ツール依存 (zls, Graphviz) は Assumptions に記載 (graceful degradation)
+- spec.md は実装非依存に保ち、技術詳細 (LSP, Kitty Graphics) は plan.md に記載
+- `gr` キーは Preview モードのみから実行可能 (TreeView からは不可)
+- US2 のグラフエッジは `callHierarchy` API を使用して呼び出し関係を取得
 
 ## Validation Result
 

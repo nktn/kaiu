@@ -31,8 +31,11 @@ kaiu (client) <--stdio--> zls (server)
      |                        |
      |-- textDocument/didOpen -->|
      |                        |
-     |-- textDocument/references -->|
+     |-- textDocument/references -->|    (US1: 参照一覧)
      |<-- result (locations[]) --|
+     |                        |
+     |-- callHierarchy/incomingCalls -->| (US2: 呼び出し元)
+     |<-- result (CallHierarchyItem[]) --|
 ```
 
 **選択理由**:
@@ -43,15 +46,23 @@ kaiu (client) <--stdio--> zls (server)
 
 ### Graph Display Strategy
 
-**2段階アプローチ**:
+**呼び出し階層グラフ**:
+- `callHierarchy/incomingCalls` で呼び出し元を取得
+- `callHierarchy/outgoingCalls` で呼び出し先を取得
+- これにより意味のあるエッジ (呼び出し関係) を構築可能
 
-1. **Primary (US2)**: Kitty Graphics Protocol
+**3段階フォールバック**:
+
+1. **Primary (US2)**: Kitty Graphics Protocol + Graphviz
    - Graphviz で DOT 形式を生成 → PNG 画像 → Kitty Graphics で表示
    - 既存の `image.zig` / `kitty_gfx.zig` パターンを再利用
 
-2. **Fallback (FR-013)**: テキストベースツリー表示
+2. **Fallback 1 (Graphviz なし)**: テキストベースツリー表示
    - ASCII art でツリー構造を表示
    - 既存の TreeView レンダリングパターンを応用
+
+3. **Fallback 2 (Kitty Graphics なし)**: テキストベースツリー表示
+   - Graphviz があっても画像表示できない場合はテキスト表示
 
 ```
 // Graphviz DOT 形式の例
@@ -189,21 +200,38 @@ pub const LspClient = struct {
     /// プロセスを終了
     pub fn stop(self: *LspClient) void;
 
-    /// textDocument/references リクエスト
+    /// textDocument/references リクエスト (US1: 参照一覧)
     pub fn findReferences(
         self: *LspClient,
         file_path: []const u8,
         line: u32,
         column: u32,
     ) Error![]SymbolReference;
+
+    /// callHierarchy/incomingCalls リクエスト (US2: 呼び出し元)
+    pub fn getIncomingCalls(
+        self: *LspClient,
+        file_path: []const u8,
+        line: u32,
+        column: u32,
+    ) Error![]CallHierarchyItem;
+
+    /// callHierarchy/outgoingCalls リクエスト (US2: 呼び出し先)
+    pub fn getOutgoingCalls(
+        self: *LspClient,
+        file_path: []const u8,
+        line: u32,
+        column: u32,
+    ) Error![]CallHierarchyItem;
 };
 ```
 
 **Lifecycle Management**:
 - kaiu 起動時には LSP を起動しない (遅延起動)
-- `gr` キー押下時に初めて起動 (FR-030)
+- `gr` キー押下時 (Preview モードのみ) に初めて起動 (FR-030)
 - kaiu 終了時に LSP プロセスも終了 (FR-033)
-- タイムアウト (5秒) でエラー表示、再試行オプション (FR-032)
+- タイムアウト (3秒) でエラー表示、再試行オプション (FR-032)
+  - SC-002 の「3秒以内に結果表示」と整合
 
 ### 3.4 Reference Data Structures
 
@@ -233,28 +261,47 @@ pub const ReferenceList = struct {
 };
 ```
 
-### 3.5 Graph Data Structures
+### 3.5 Call Hierarchy Data Structures
 
 ```zig
 // src/graph.zig
 
-pub const GraphNode = struct {
-    reference: *SymbolReference,
-    edges: std.ArrayList(*GraphNode), // outgoing edges (calls to)
+pub const CallHierarchyItem = struct {
+    name: []const u8,           // シンボル名
+    kind: SymbolKind,           // function, method, etc.
+    file_path: []const u8,      // ファイルパス
+    line: u32,                  // 行番号
+    column: u32,                // 列番号
+    snippet: []const u8,        // コードスニペット
 };
 
-pub const ReferenceGraph = struct {
-    allocator: std.mem.Allocator,
-    nodes: std.ArrayList(GraphNode),
-    root: ?*GraphNode,
+pub const CallGraphNode = struct {
+    item: CallHierarchyItem,
+    incoming: std.ArrayList(*CallGraphNode), // 呼び出し元
+    outgoing: std.ArrayList(*CallGraphNode), // 呼び出し先
+};
 
-    pub fn init(allocator: std.mem.Allocator) ReferenceGraph;
-    pub fn deinit(self: *ReferenceGraph) void;
-    pub fn buildFromReferences(self: *ReferenceGraph, refs: []SymbolReference) void;
-    pub fn toDot(self: *ReferenceGraph, arena: std.mem.Allocator) []const u8;
-    pub fn toTextTree(self: *ReferenceGraph, arena: std.mem.Allocator) []const u8;
+pub const CallHierarchyGraph = struct {
+    allocator: std.mem.Allocator,
+    nodes: std.ArrayList(CallGraphNode),
+    root: ?*CallGraphNode,                    // 検索元シンボル
+
+    pub fn init(allocator: std.mem.Allocator) CallHierarchyGraph;
+    pub fn deinit(self: *CallHierarchyGraph) void;
+    /// callHierarchy/incomingCalls と outgoingCalls から構築
+    pub fn buildFromCallHierarchy(
+        self: *CallHierarchyGraph,
+        incoming: []CallHierarchyItem,
+        outgoing: []CallHierarchyItem,
+    ) void;
+    pub fn toDot(self: *CallHierarchyGraph, arena: std.mem.Allocator) []const u8;
+    pub fn toTextTree(self: *CallHierarchyGraph, arena: std.mem.Allocator) []const u8;
 };
 ```
+
+**データソースの違い**:
+- **US1 (参照一覧)**: `textDocument/references` → シンボルが参照されている位置のリスト
+- **US2 (呼び出しグラフ)**: `callHierarchy/*` → 呼び出し元/先の関係性を持つグラフ
 
 ### 3.6 Memory Strategy
 
@@ -368,7 +415,7 @@ pub const ReferenceGraph = struct {
 | Risk | Mitigation |
 |------|------------|
 | zls がインストールされていない環境 | graceful degradation + 明確なエラーメッセージ |
-| LSP リクエストのタイムアウト | 5秒タイムアウト + 再試行オプション |
+| LSP リクエストのタイムアウト | 3秒タイムアウト + 再試行オプション (SC-002 と整合) |
 | Graphviz がインストールされていない | テキストフォールバックを必須実装 |
 
 ### Medium Risk
@@ -444,7 +491,7 @@ pub const ReferenceGraph = struct {
 | Metric | Target | Measurement |
 |--------|--------|-------------|
 | SC-001: 2キー操作で検索 | 達成 | シンボル位置 + `gr` |
-| SC-002: 3秒以内に結果表示 | 達成 | タイムアウト 5秒設定 |
+| SC-002: 3秒以内に結果表示 | 達成 | タイムアウト 3秒設定 |
 | SC-003: グラフ 2秒以内 | 達成 | 50 ノード以下を制限 |
 | SC-004: クラッシュしない | 達成 | graceful error handling |
 | SC-005: テキストフォールバック | 達成 | Phase 3 で実装 |
