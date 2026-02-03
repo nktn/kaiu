@@ -536,7 +536,12 @@ pub const LspClient = struct {
         var params = std.json.ObjectMap.init(self.allocator);
         defer params.deinit();
 
-        params.put("processId", std.json.Value{ .integer = @intCast(std.c.getpid()) }) catch return error.OutOfMemory;
+        const pid: i64 = switch (builtin.os.tag) {
+            .linux => @intCast(std.os.linux.getpid()),
+            .macos => @intCast(std.c.getpid()),
+            else => 0,
+        };
+        params.put("processId", std.json.Value{ .integer = pid }) catch return error.OutOfMemory;
         params.put("rootUri", std.json.Value{ .string = root_uri }) catch return error.OutOfMemory;
 
         // Client capabilities
