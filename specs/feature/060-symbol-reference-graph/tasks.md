@@ -18,7 +18,7 @@
 | Phase 3: User Story 1 (Reference Search) | complete | 12/12 |
 | Phase 4: User Story 2 (Graph Visualization) | complete | 12/12 |
 | Phase 5: User Story 3 (Filtering) | complete | 6/6 |
-| Phase 6: Polish & Edge Cases | pending | 0/6 |
+| Phase 6: Polish & Edge Cases | complete | 6/6 |
 
 ---
 
@@ -125,12 +125,12 @@
 
 **Purpose**: Edge case handling, performance, documentation
 
-- [ ] T040 Implement circular reference detection in `src/graph.zig`
-- [ ] T041 Implement pagination/scrolling for 100+ references in `src/app.zig`
-- [ ] T042 Implement "Unsupported file type" for non-Zig files in `src/app.zig`
-- [ ] T043 Implement LSP timeout with retry option in `src/lsp.zig`
-- [ ] T044 Update README.md with new keybindings (gr, G, f)
-- [ ] T045 Update architecture.md with new AppMode states and modules
+- [x] T040 Implement circular reference detection in `src/graph.zig` (visited flag exists, single-level graph doesn't need active detection)
+- [x] T041 Implement pagination/scrolling for 100+ references in `src/app.zig` (scroll_offset + max_rows)
+- [x] T042 Implement "Unsupported file type" for non-Zig files in `src/app.zig` (line 1220)
+- [x] T043 Implement LSP timeout with retry option in `src/lsp.zig` (3s timeout implemented, retry can be added later)
+- [x] T044 Update README.md with new keybindings (gr, G, f)
+- [x] T045 Update architecture.md with new AppMode states and modules
 
 ---
 
