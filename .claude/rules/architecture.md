@@ -48,6 +48,19 @@ stateDiagram-v2
     ConfirmDelete --> TreeView: n/Esc (cancel)
 
     Preview --> TreeView: q/o/h (close)
+    Preview --> ReferenceList: gr (find references)
+
+    ReferenceList --> ReferenceList: j/k (navigate)
+    ReferenceList --> ReferenceList: o (preview snippet)
+    ReferenceList --> TreeView: q (close)
+    ReferenceList --> ReferenceGraph: G (graph view)
+    ReferenceList --> ReferenceFilter: f (filter mode)
+    ReferenceList --> External: Enter (open in $EDITOR)
+
+    ReferenceGraph --> ReferenceList: l/q (back to list)
+
+    ReferenceFilter --> ReferenceList: Enter (apply filter)
+    ReferenceFilter --> ReferenceList: Esc (cancel)
 
     Help --> TreeView: any key
 ```
@@ -95,6 +108,18 @@ stateDiagram-v2
 | ConfirmDelete | `n`/`Esc` | TreeView | cancel |
 | Preview | `q`/`o`/`h` | TreeView | closePreview() |
 | Preview | `j`/`k` | Preview | scroll |
+| Preview | `gr` | ReferenceList | findReferences() |
+| ReferenceList | `j`/`k` | ReferenceList | navigate |
+| ReferenceList | `o` | ReferenceList | previewReferenceSnippet() |
+| ReferenceList | `Enter` | External | openReferenceInEditor() |
+| ReferenceList | `G` | ReferenceGraph | switchToGraphView() |
+| ReferenceList | `f` | ReferenceFilter | enterFilterMode() |
+| ReferenceList | `q` | TreeView | closeReferenceList() |
+| ReferenceGraph | `l`/`q` | ReferenceList | return to list |
+| ReferenceGraph | `j`/`k` | ReferenceGraph | navigate graph |
+| ReferenceFilter | `Enter` | ReferenceList | applyFilter() |
+| ReferenceFilter | `Esc` | ReferenceList | cancel |
+| ReferenceFilter | char | ReferenceFilter | update input |
 | Help | any | TreeView | dismiss |
 
 ### State Enum
@@ -110,6 +135,9 @@ pub const AppMode = enum {
     confirm_delete,    // Delete confirmation
     confirm_overwrite, // Drop filename conflict confirmation (US3)
     help,              // Help overlay
+    reference_list,    // Symbol reference list (gr key)
+    reference_graph,   // Call hierarchy graph view (G key)
+    reference_filter,  // Filter input mode (f key)
 };
 ```
 
@@ -126,7 +154,10 @@ src/
 ├── vcs.zig       # VCS integration (JuJutsu/Git status)
 ├── image.zig     # Image format detection and dimensions
 ├── watcher.zig   # File system watching (mtime polling)
-└── kitty_gfx.zig # Kitty Graphics Protocol for image display
+├── kitty_gfx.zig # Kitty Graphics Protocol for image display
+├── lsp.zig       # LSP client (JSON-RPC over stdio with zls)
+├── reference.zig # Symbol reference list with filtering
+└── graph.zig     # Call hierarchy graph visualization
 ```
 
 ### Module Responsibilities
@@ -143,6 +174,9 @@ src/
 | watcher.zig | ファイルシステム監視、mtimeポーリング、デバウンス |
 | kitty_gfx.zig | Kitty Graphics Protocol、RGBA送信、画像プレビュー |
 | icons.zig | Nerd Font アイコンマッピング、拡張子・ファイル名ルックアップ |
+| lsp.zig | LSPクライアント、JSON-RPC通信、zls連携、textDocument/references、callHierarchy |
+| reference.zig | シンボル参照リスト、globフィルタリング、カーソル管理 |
+| graph.zig | コールグラフ構造、DOT形式出力、テキストツリー出力 |
 
 ## Memory Strategy
 

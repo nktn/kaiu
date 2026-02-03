@@ -17,11 +17,13 @@ TUI file explorer with Vim keybindings, written in Zig.
 - **Image preview** - PNG, JPG, GIF, WebP via Kitty Graphics Protocol
 - **Drag & drop** - Drop files from Finder to copy into current directory
 - **File watching** - Auto-refresh on external file changes
+- **Symbol references** - Find references via LSP (zls), call hierarchy graph, glob filtering
 
 ## Requirements
 
 - Zig 0.15.2+
 - Terminal with TUI support (recommended: Ghostty, Kitty, WezTerm)
+- zls (Zig Language Server) - for Symbol Reference feature
 
 ## Installation
 
@@ -100,6 +102,19 @@ Priority: CLI flags > config file > defaults
 | `a` | Create new file in current directory |
 | `A` | Create new directory in current directory |
 
+### Symbol References (LSP)
+
+| Key | Action |
+|-----|--------|
+| `gr` | Find references to symbol under cursor (requires zls) |
+| `j` / `k` | Navigate reference list |
+| `Enter` | Open reference in $EDITOR |
+| `o` | Preview code snippet |
+| `G` | Switch to call hierarchy graph view |
+| `l` | Return to list from graph view |
+| `f` | Filter references by glob pattern (e.g., `src/**`, `!tests/**`) |
+| `q` | Close reference list |
+
 ### VCS & External Tools
 
 | Key | Action |
@@ -130,7 +145,10 @@ src/
 ├── vcs.zig       # VCS integration (JuJutsu/Git status detection)
 ├── image.zig     # Image format detection and dimensions
 ├── watcher.zig   # File system watching (mtime polling)
-└── kitty_gfx.zig # Kitty Graphics Protocol for image display
+├── kitty_gfx.zig # Kitty Graphics Protocol for image display
+├── lsp.zig       # LSP client (JSON-RPC over stdio with zls)
+├── reference.zig # Symbol reference list with filtering
+└── graph.zig     # Call hierarchy graph visualization
 ```
 
 ## Architecture

@@ -7,6 +7,9 @@ const vcs = @import("vcs.zig");
 const image = @import("image.zig");
 const watcher = @import("watcher.zig");
 const icons = @import("icons.zig");
+const lsp = @import("lsp.zig");
+const reference = @import("reference.zig");
+const graph = @import("graph.zig");
 
 pub const AppMode = enum {
     tree_view,
@@ -18,6 +21,10 @@ pub const AppMode = enum {
     confirm_delete,
     confirm_overwrite, // For drop filename conflict (US3)
     help,
+    // Phase 4.0: Symbol Reference (T015, T029, T034)
+    reference_list, // US1: Reference list display
+    reference_graph, // US2: Call hierarchy graph display
+    reference_filter, // US3: Filter input mode
 };
 
 pub const Event = union(enum) {
@@ -134,6 +141,15 @@ pub const App = struct {
     // CLI options (Phase 3.5 - US4: T030)
     show_icons: bool, // Default true, false with --no-icons
 
+    // Phase 4.0: Symbol Reference State (T016, T029)
+    lsp_client: ?lsp.LspClient,
+    reference_list: ?reference.ReferenceList,
+    reference_error_message: ?[]const u8, // For "No references found" or "Language server not available"
+    // US2: Graph visualization state
+    call_hierarchy_graph: ?graph.CallHierarchyGraph,
+    graph_text_content: ?[]const u8, // Cached text tree for fallback display
+    graph_scroll_offset: usize,
+
     const Self = @This();
 
     /// Cached file stat info for status bar display (Phase 3.5 - US3: T018)
@@ -197,6 +213,13 @@ pub const App = struct {
             .last_click_time = null,
             .last_click_entry = null,
             .show_icons = true, // Default: icons enabled (T030)
+            // Phase 4.0: Symbol Reference State (T016)
+            .lsp_client = null,
+            .reference_list = null,
+            .reference_error_message = null,
+            .call_hierarchy_graph = null,
+            .graph_text_content = null,
+            .graph_scroll_offset = 0,
         };
 
         self.tty = try vaxis.Tty.init(&self.tty_buf);
@@ -263,6 +286,13 @@ pub const App = struct {
         }
         // Free paste buffer
         self.paste_buffer.deinit(self.allocator);
+        // Phase 4.0: Free LSP client and reference list (T016)
+        if (self.lsp_client) |*client| {
+            client.deinit();
+        }
+        if (self.reference_list) |*ref_list| {
+            ref_list.deinit();
+        }
         self.render_arena.deinit();
         self.allocator.destroy(self);
     }
@@ -373,6 +403,9 @@ pub const App = struct {
             .confirm_delete => try self.handleConfirmDeleteKey(key_char),
             .confirm_overwrite => {}, // TODO: Will be implemented in US3 (Drag & Drop)
             .help => self.handleHelpKey(),
+            .reference_list => self.handleReferenceListKey(key_char), // Phase 4.0 (T018)
+            .reference_graph => self.handleReferenceGraphKey(key), // Phase 4.0 (T033)
+            .reference_filter => self.handleReferenceFilterKey(key), // Phase 4.0 (T038)
         }
     }
 
@@ -582,11 +615,31 @@ pub const App = struct {
     }
 
     fn handlePreviewKey(self: *Self, key_char: u21) void {
+        // Check for pending multi-key command (T017: gr for go to references)
+        if (self.pending_key.get()) |pending| {
+            self.pending_key.clear();
+
+            if (pending == 'g') {
+                switch (key_char) {
+                    'r' => {
+                        // gr: Go to references (T017)
+                        self.triggerReferenceSearch();
+                        return;
+                    },
+                    else => {},
+                }
+            }
+        }
+
         switch (key_char) {
             'q', 'o', 'h' => self.closePreview(),
             'j' => self.scrollPreviewDown(self.vx.window().height),
             'k' => if (self.preview_scroll > 0) {
                 self.preview_scroll -= 1;
+            },
+            'g' => {
+                // Start multi-key command (T017)
+                self.pending_key.set('g');
             },
             else => {},
         }
@@ -933,7 +986,7 @@ pub const App = struct {
         };
         defer file.close();
 
-        const max_size = 100 * 1024; // 100KB max
+        const max_size = 10 * 1024 * 1024; // 10MB max (images handled separately)
         const content = file.readToEndAlloc(self.allocator, max_size) catch |err| {
             // Check if file is too large by attempting to get metadata
             const stat = file.stat() catch {
@@ -1150,6 +1203,362 @@ pub const App = struct {
 
         self.preview_scroll = 0;
         self.mode = .preview;
+    }
+
+    // ===== Phase 4.0: Symbol Reference Functions (T017-T023) =====
+
+    /// Trigger reference search for symbol at cursor position. (T017)
+    fn triggerReferenceSearch(self: *Self) void {
+        // Get current file path from preview
+        const file_path = self.preview_path orelse {
+            self.reference_error_message = "No file open";
+            self.mode = .reference_list;
+            return;
+        };
+
+        // Check if it's a Zig file
+        if (!std.mem.endsWith(u8, file_path, ".zig")) {
+            self.reference_error_message = "Unsupported file type";
+            self.mode = .reference_list;
+            return;
+        }
+
+        // Get cursor position (use preview_scroll as line estimate)
+        const line: u32 = @intCast(self.preview_scroll);
+        const column: u32 = 0; // We don't track column in preview, use 0
+
+        // Initialize LSP client if needed
+        if (self.lsp_client == null) {
+            self.lsp_client = lsp.LspClient.init(self.allocator);
+
+            // Get root path from file_tree
+            const root_path = if (self.file_tree) |ft| ft.root_path else file_path;
+
+            self.lsp_client.?.start(root_path) catch |err| {
+                switch (err) {
+                    lsp.LspClient.Error.ServerNotFound => {
+                        self.reference_error_message = "Language server not available";
+                    },
+                    else => {
+                        self.reference_error_message = "Failed to start language server";
+                    },
+                }
+                self.lsp_client.?.deinit();
+                self.lsp_client = null;
+                self.mode = .reference_list;
+                return;
+            };
+        }
+
+        // Send didOpen notification
+        const content = self.preview_content orelse "";
+        self.lsp_client.?.didOpen(file_path, content) catch {
+            self.reference_error_message = "Failed to open document";
+            self.mode = .reference_list;
+            return;
+        };
+
+        // Find references
+        const refs = self.lsp_client.?.findReferences(file_path, line, column) catch {
+            self.reference_error_message = "Request timed out";
+            self.mode = .reference_list;
+            return;
+        };
+
+        if (refs.len == 0) {
+            self.reference_error_message = "No references found";
+            self.mode = .reference_list;
+            return;
+        }
+
+        // Build reference list
+        self.clearReferenceList();
+
+        const symbol_name = std.fs.path.basename(file_path);
+        self.reference_list = reference.ReferenceList.init(self.allocator, symbol_name) catch {
+            self.reference_error_message = "Out of memory";
+            self.mode = .reference_list;
+            return;
+        };
+
+        for (refs) |ref| {
+            self.reference_list.?.addReference(.{
+                .file_path = self.allocator.dupe(u8, ref.file_path) catch continue,
+                .line = ref.line,
+                .column = ref.column,
+                .snippet = self.allocator.dupe(u8, ref.snippet) catch self.allocator.dupe(u8, "") catch continue,
+                .context_before = self.allocator.dupe(u8, "") catch continue,
+                .context_after = self.allocator.dupe(u8, "") catch continue,
+            }) catch continue;
+        }
+
+        // Free LSP response
+        for (refs) |ref| {
+            self.allocator.free(ref.file_path);
+            self.allocator.free(ref.snippet);
+        }
+        self.allocator.free(refs);
+
+        self.reference_error_message = null;
+        self.mode = .reference_list;
+    }
+
+    /// Handle key in reference list mode. (T018)
+    fn handleReferenceListKey(self: *Self, key_char: u21) void {
+        // If there's an error message, any key closes
+        if (self.reference_error_message != null) {
+            self.reference_error_message = null;
+            self.mode = .preview;
+            return;
+        }
+
+        switch (key_char) {
+            'j' => {
+                if (self.reference_list) |*ref_list| {
+                    ref_list.moveDown();
+                }
+            },
+            'k' => {
+                if (self.reference_list) |*ref_list| {
+                    ref_list.moveUp();
+                }
+            },
+            'o' => {
+                // Preview snippet (T020)
+                self.previewReferenceSnippet();
+            },
+            'G' => {
+                // Switch to graph view (T033)
+                self.switchToGraphView();
+            },
+            'f' => {
+                // Enter filter mode (T038)
+                self.input_buffer.clearRetainingCapacity();
+                self.mode = .reference_filter;
+            },
+            vaxis.Key.enter => {
+                // Open in $EDITOR (T021)
+                self.openReferenceInEditor();
+            },
+            'q', vaxis.Key.escape => {
+                // Close reference list and return to preview
+                self.clearReferenceList();
+                self.mode = .preview;
+            },
+            else => {},
+        }
+    }
+
+    /// Handle key events in reference filter mode. (T038)
+    fn handleReferenceFilterKey(self: *Self, key: vaxis.Key) void {
+        const key_char = if (key.codepoint < 128) @as(u8, @intCast(key.codepoint)) else 0;
+
+        switch (key.codepoint) {
+            vaxis.Key.enter => {
+                // Apply filter and return to reference list
+                if (self.reference_list) |*ref_list| {
+                    if (self.input_buffer.items.len > 0) {
+                        ref_list.applyFilter(self.input_buffer.items) catch {};
+                    } else {
+                        ref_list.clearFilter();
+                    }
+                }
+                self.mode = .reference_list;
+            },
+            vaxis.Key.escape => {
+                // Cancel filter and return to reference list
+                self.mode = .reference_list;
+            },
+            vaxis.Key.backspace => {
+                // Delete character
+                if (self.input_buffer.items.len > 0) {
+                    _ = self.input_buffer.pop();
+                }
+            },
+            else => {
+                // Add character to filter pattern
+                if (key_char >= 32 and key_char < 127) {
+                    self.input_buffer.append(self.allocator, key_char) catch {};
+                }
+            },
+        }
+    }
+
+    /// Preview the code snippet for current reference. (T020)
+    fn previewReferenceSnippet(self: *Self) void {
+        const ref_list = self.reference_list orelse return;
+        const current = ref_list.getCurrent() orelse return;
+
+        // Show context in status message
+        const msg_buf = &self.status_message_buf;
+        const msg = std.fmt.bufPrint(msg_buf, "{s}:{d}", .{
+            std.fs.path.basename(current.file_path),
+            current.line + 1,
+        }) catch return;
+        self.status_message = msg;
+    }
+
+    /// Open current reference in $EDITOR. (T021)
+    fn openReferenceInEditor(self: *Self) void {
+        const ref_list = self.reference_list orelse return;
+        const current = ref_list.getCurrent() orelse return;
+
+        // Get editor from $EDITOR or fall back to defaults
+        const editor = std.posix.getenv("EDITOR") orelse
+            std.posix.getenv("VISUAL") orelse "vi";
+
+        // Build command with line number
+        var line_buf: [32]u8 = undefined;
+        const line_arg = std.fmt.bufPrint(&line_buf, "+{d}", .{current.line + 1}) catch return;
+
+        // Launch editor
+        var child = std.process.Child.init(&[_][]const u8{ editor, line_arg, current.file_path }, self.allocator);
+        child.spawn() catch return;
+        _ = child.wait() catch {};
+
+        // Clear reference list and return to tree view after editor
+        self.clearReferenceList();
+        self.closePreview();
+    }
+
+    /// Clear reference list and free memory.
+    fn clearReferenceList(self: *Self) void {
+        if (self.reference_list) |*ref_list| {
+            ref_list.deinit();
+            self.reference_list = null;
+        }
+        self.reference_error_message = null;
+        self.clearGraph();
+    }
+
+    /// Clear call hierarchy graph and free memory. (T029)
+    fn clearGraph(self: *Self) void {
+        if (self.call_hierarchy_graph) |*g| {
+            g.deinit();
+            self.call_hierarchy_graph = null;
+        }
+        if (self.graph_text_content) |content| {
+            self.allocator.free(content);
+            self.graph_text_content = null;
+        }
+        self.graph_scroll_offset = 0;
+    }
+
+    /// Switch from reference list to graph view. (T033)
+    fn switchToGraphView(self: *Self) void {
+        // Get current reference for building graph
+        const ref_list = self.reference_list orelse return;
+        const current = ref_list.getCurrent() orelse return;
+
+        // Initialize LSP client if needed
+        if (self.lsp_client == null) {
+            self.lsp_client = lsp.LspClient.init(self.allocator);
+
+            // Start LSP with root path
+            const root_path = if (self.file_tree) |ft| ft.root_path else ".";
+            self.lsp_client.?.start(root_path) catch {
+                self.lsp_client.?.deinit();
+                self.lsp_client = null;
+                self.status_message = "Language server not available";
+                return;
+            };
+        }
+
+        // Get incoming and outgoing calls
+        var incoming_success = true;
+        const incoming = self.lsp_client.?.getIncomingCalls(
+            current.file_path,
+            current.line,
+            current.column,
+        ) catch blk: {
+            incoming_success = false;
+            break :blk &[_]lsp.CallHierarchyItem{};
+        };
+        defer {
+            if (incoming_success) {
+                for (incoming) |*item| {
+                    self.allocator.free(item.name);
+                    self.allocator.free(item.file_path);
+                    self.allocator.free(item.snippet);
+                }
+                self.allocator.free(incoming);
+            }
+        }
+
+        var outgoing_success = true;
+        const outgoing = self.lsp_client.?.getOutgoingCalls(
+            current.file_path,
+            current.line,
+            current.column,
+        ) catch blk: {
+            outgoing_success = false;
+            break :blk &[_]lsp.CallHierarchyItem{};
+        };
+        defer {
+            if (outgoing_success) {
+                for (outgoing) |*item| {
+                    self.allocator.free(item.name);
+                    self.allocator.free(item.file_path);
+                    self.allocator.free(item.snippet);
+                }
+                self.allocator.free(outgoing);
+            }
+        }
+
+        // Build graph
+        self.clearGraph();
+        self.call_hierarchy_graph = graph.CallHierarchyGraph.init(self.allocator);
+
+        const root_item = graph.CallHierarchyItem{
+            .name = self.allocator.dupe(u8, ref_list.symbol_name) catch return,
+            .kind = .function,
+            .file_path = self.allocator.dupe(u8, current.file_path) catch return,
+            .line = current.line,
+            .column = current.column,
+            .snippet = self.allocator.dupe(u8, current.snippet) catch return,
+        };
+
+        self.call_hierarchy_graph.?.buildFromCallHierarchy(root_item, incoming, outgoing) catch {
+            self.clearGraph();
+            self.status_message = "Failed to build call hierarchy graph";
+            return;
+        };
+
+        // Generate text tree for fallback display (T028, T032)
+        var arena = std.heap.ArenaAllocator.init(self.allocator);
+        defer arena.deinit();
+        const text_content = self.call_hierarchy_graph.?.toTextTree(arena.allocator()) catch "";
+        self.graph_text_content = self.allocator.dupe(u8, text_content) catch null;
+
+        self.mode = .reference_graph;
+    }
+
+    /// Handle key events in reference graph mode. (T033)
+    fn handleReferenceGraphKey(self: *Self, key: vaxis.Key) void {
+        const key_char = if (key.codepoint < 128) @as(u8, @intCast(key.codepoint)) else 0;
+
+        switch (key_char) {
+            'j' => {
+                // Scroll down
+                self.graph_scroll_offset += 1;
+            },
+            'k' => {
+                // Scroll up
+                if (self.graph_scroll_offset > 0) {
+                    self.graph_scroll_offset -= 1;
+                }
+            },
+            'l', 'q' => {
+                // Return to reference list
+                self.mode = .reference_list;
+            },
+            else => {
+                // Check for escape
+                if (key.codepoint == vaxis.Key.escape) {
+                    self.mode = .reference_list;
+                }
+            },
+        }
     }
 
     fn closePreview(self: *Self) void {
@@ -2060,6 +2469,35 @@ pub const App = struct {
             .help => {
                 try ui.renderHelp(win);
             },
+            .reference_list => {
+                // Phase 4.0: Render reference list (T019)
+                try ui.renderReferenceList(
+                    win,
+                    if (self.reference_list) |*rl| rl else null,
+                    self.reference_error_message,
+                    arena,
+                );
+            },
+            .reference_graph => {
+                // Phase 4.0: Render call hierarchy graph (T032)
+                try ui.renderReferenceGraph(
+                    win,
+                    self.graph_text_content,
+                    self.graph_scroll_offset,
+                    arena,
+                );
+            },
+            .reference_filter => {
+                // Phase 4.0: Render reference list with filter input (T038)
+                try ui.renderReferenceList(
+                    win,
+                    if (self.reference_list) |*rl| rl else null,
+                    self.reference_error_message,
+                    arena,
+                );
+                // Overlay filter input at bottom
+                try ui.renderFilterInput(win, self.input_buffer.items);
+            },
         }
 
         try self.vx.render(writer);
@@ -2283,6 +2721,24 @@ pub const App = struct {
             .preview => {
                 _ = win.printSegment(.{
                     .text = "j/k:scroll  q/o/h:close",
+                    .style = .{ .fg = .{ .index = 8 } },
+                }, .{ .row_offset = row, .col_offset = 0 });
+            },
+            .reference_list => {
+                _ = win.printSegment(.{
+                    .text = "j/k:nav  Enter:open  o:preview  G:graph  q:close",
+                    .style = .{ .fg = .{ .index = 8 } },
+                }, .{ .row_offset = row, .col_offset = 0 });
+            },
+            .reference_graph => {
+                _ = win.printSegment(.{
+                    .text = "j/k:scroll  l/q:back to list",
+                    .style = .{ .fg = .{ .index = 8 } },
+                }, .{ .row_offset = row, .col_offset = 0 });
+            },
+            .reference_filter => {
+                _ = win.printSegment(.{
+                    .text = "Enter:apply  Esc:cancel",
                     .style = .{ .fg = .{ .index = 8 } },
                 }, .{ .row_offset = row, .col_offset = 0 });
             },
