@@ -13,9 +13,9 @@
 
 | Phase | Status | Progress |
 |-------|--------|----------|
-| Phase 1: Setup | pending | 0/3 |
-| Phase 2: Foundational (LSP Infrastructure) | pending | 0/8 |
-| Phase 3: User Story 1 (Reference Search) | pending | 0/12 |
+| Phase 1: Setup | complete | 3/3 |
+| Phase 2: Foundational (LSP Infrastructure) | complete | 8/8 |
+| Phase 3: User Story 1 (Reference Search) | complete | 12/12 |
 | Phase 4: User Story 2 (Graph Visualization) | pending | 0/12 |
 | Phase 5: User Story 3 (Filtering) | pending | 0/6 |
 | Phase 6: Polish & Edge Cases | pending | 0/6 |
@@ -26,9 +26,9 @@
 
 **Purpose**: New modules initialization
 
-- [ ] T001 Create `src/lsp.zig` module skeleton with LspClient struct
-- [ ] T002 [P] Create `src/reference.zig` module skeleton with SymbolReference struct
-- [ ] T003 [P] Create `src/graph.zig` module skeleton with ReferenceGraph struct
+- [x] T001 Create `src/lsp.zig` module skeleton with LspClient struct
+- [x] T002 [P] Create `src/reference.zig` module skeleton with SymbolReference struct
+- [x] T003 [P] Create `src/graph.zig` module skeleton with ReferenceGraph struct
 
 ---
 
@@ -38,14 +38,14 @@
 
 **⚠️ CRITICAL**: US1 cannot begin until this phase is complete
 
-- [ ] T004 Define JSON-RPC message types (Request, Response, Notification) in `src/lsp.zig`
-- [ ] T005 Implement `LspClient.init()` and `LspClient.deinit()` in `src/lsp.zig`
-- [ ] T006 Implement zls process spawn with stdio pipes in `src/lsp.zig`
-- [ ] T007 Implement JSON-RPC message send/receive over stdio in `src/lsp.zig`
-- [ ] T008 Implement `initialize` / `initialized` handshake in `src/lsp.zig`
-- [ ] T009 Implement `textDocument/didOpen` notification in `src/lsp.zig`
-- [ ] T010 Implement error handling for ServerNotFound, Timeout in `src/lsp.zig`
-- [ ] T011 Add tests for JSON-RPC message serialization/parsing in `src/lsp.zig`
+- [x] T004 Define JSON-RPC message types (Request, Response, Notification) in `src/lsp.zig`
+- [x] T005 Implement `LspClient.init()` and `LspClient.deinit()` in `src/lsp.zig`
+- [x] T006 Implement zls process spawn with stdio pipes in `src/lsp.zig`
+- [x] T007 Implement JSON-RPC message send/receive over stdio in `src/lsp.zig`
+- [x] T008 Implement `initialize` / `initialized` handshake in `src/lsp.zig`
+- [x] T009 Implement `textDocument/didOpen` notification in `src/lsp.zig`
+- [x] T010 Implement error handling for ServerNotFound, Timeout in `src/lsp.zig`
+- [x] T011 Add tests for JSON-RPC message serialization/parsing in `src/lsp.zig`
 
 **Checkpoint**: LSP client can start zls and complete handshake
 
@@ -59,18 +59,18 @@
 
 ### Implementation for User Story 1
 
-- [ ] T012 [US1] Implement `textDocument/references` request in `src/lsp.zig`
-- [ ] T013 [US1] Implement `SymbolReference` struct with file_path, line, column, snippet in `src/reference.zig`
-- [ ] T014 [US1] Implement `ReferenceList` struct with ArrayList and cursor management in `src/reference.zig`
-- [ ] T015 [US1] Add `AppMode.reference_list` enum value in `src/app.zig`
-- [ ] T016 [US1] Add reference_list state fields (cursor, scroll, references) to App struct in `src/app.zig`
-- [ ] T017 [US1] Implement `gr` keybinding in Preview mode to trigger reference search in `src/app.zig`
-- [ ] T018 [US1] Implement `handleReferenceListKey()` for j/k/Enter/o/q navigation in `src/app.zig`
-- [ ] T019 [US1] Implement `renderReferenceList()` in `src/ui.zig`
-- [ ] T020 [US1] Implement snippet preview (`o` key) showing code context in `src/app.zig`
-- [ ] T021 [US1] Implement $EDITOR launch on Enter key in `src/app.zig`
-- [ ] T022 [US1] Implement "No references found" message display in `src/ui.zig`
-- [ ] T023 [US1] Implement "Language server not available" message display in `src/ui.zig`
+- [x] T012 [US1] Implement `textDocument/references` request in `src/lsp.zig`
+- [x] T013 [US1] Implement `SymbolReference` struct with file_path, line, column, snippet in `src/reference.zig`
+- [x] T014 [US1] Implement `ReferenceList` struct with ArrayList and cursor management in `src/reference.zig`
+- [x] T015 [US1] Add `AppMode.reference_list` enum value in `src/app.zig`
+- [x] T016 [US1] Add reference_list state fields (cursor, scroll, references) to App struct in `src/app.zig`
+- [x] T017 [US1] Implement `gr` keybinding in Preview mode to trigger reference search in `src/app.zig`
+- [x] T018 [US1] Implement `handleReferenceListKey()` for j/k/Enter/o/q navigation in `src/app.zig`
+- [x] T019 [US1] Implement `renderReferenceList()` in `src/ui.zig`
+- [x] T020 [US1] Implement snippet preview (`o` key) showing code context in `src/app.zig`
+- [x] T021 [US1] Implement $EDITOR launch on Enter key in `src/app.zig`
+- [x] T022 [US1] Implement "No references found" message display in `src/ui.zig`
+- [x] T023 [US1] Implement "Language server not available" message display in `src/ui.zig`
 
 **Checkpoint**: User Story 1 complete - `gr` shows reference list, j/k navigates, Enter opens in $EDITOR
 

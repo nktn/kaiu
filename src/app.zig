@@ -7,6 +7,8 @@ const vcs = @import("vcs.zig");
 const image = @import("image.zig");
 const watcher = @import("watcher.zig");
 const icons = @import("icons.zig");
+const lsp = @import("lsp.zig");
+const reference = @import("reference.zig");
 
 pub const AppMode = enum {
     tree_view,
@@ -18,6 +20,8 @@ pub const AppMode = enum {
     confirm_delete,
     confirm_overwrite, // For drop filename conflict (US3)
     help,
+    // Phase 4.0: Symbol Reference (T015)
+    reference_list, // US1: Reference list display
 };
 
 pub const Event = union(enum) {
@@ -134,6 +138,11 @@ pub const App = struct {
     // CLI options (Phase 3.5 - US4: T030)
     show_icons: bool, // Default true, false with --no-icons
 
+    // Phase 4.0: Symbol Reference State (T016)
+    lsp_client: ?lsp.LspClient,
+    reference_list: ?reference.ReferenceList,
+    reference_error_message: ?[]const u8, // For "No references found" or "Language server not available"
+
     const Self = @This();
 
     /// Cached file stat info for status bar display (Phase 3.5 - US3: T018)
@@ -197,6 +206,10 @@ pub const App = struct {
             .last_click_time = null,
             .last_click_entry = null,
             .show_icons = true, // Default: icons enabled (T030)
+            // Phase 4.0: Symbol Reference State (T016)
+            .lsp_client = null,
+            .reference_list = null,
+            .reference_error_message = null,
         };
 
         self.tty = try vaxis.Tty.init(&self.tty_buf);
@@ -263,6 +276,13 @@ pub const App = struct {
         }
         // Free paste buffer
         self.paste_buffer.deinit(self.allocator);
+        // Phase 4.0: Free LSP client and reference list (T016)
+        if (self.lsp_client) |*client| {
+            client.deinit();
+        }
+        if (self.reference_list) |*ref_list| {
+            ref_list.deinit();
+        }
         self.render_arena.deinit();
         self.allocator.destroy(self);
     }
@@ -373,6 +393,7 @@ pub const App = struct {
             .confirm_delete => try self.handleConfirmDeleteKey(key_char),
             .confirm_overwrite => {}, // TODO: Will be implemented in US3 (Drag & Drop)
             .help => self.handleHelpKey(),
+            .reference_list => self.handleReferenceListKey(key_char), // Phase 4.0 (T018)
         }
     }
 
@@ -582,11 +603,31 @@ pub const App = struct {
     }
 
     fn handlePreviewKey(self: *Self, key_char: u21) void {
+        // Check for pending multi-key command (T017: gr for go to references)
+        if (self.pending_key.get()) |pending| {
+            self.pending_key.clear();
+
+            if (pending == 'g') {
+                switch (key_char) {
+                    'r' => {
+                        // gr: Go to references (T017)
+                        self.triggerReferenceSearch();
+                        return;
+                    },
+                    else => {},
+                }
+            }
+        }
+
         switch (key_char) {
             'q', 'o', 'h' => self.closePreview(),
             'j' => self.scrollPreviewDown(self.vx.window().height),
             'k' => if (self.preview_scroll > 0) {
                 self.preview_scroll -= 1;
+            },
+            'g' => {
+                // Start multi-key command (T017)
+                self.pending_key.set('g');
             },
             else => {},
         }
@@ -1150,6 +1191,187 @@ pub const App = struct {
 
         self.preview_scroll = 0;
         self.mode = .preview;
+    }
+
+    // ===== Phase 4.0: Symbol Reference Functions (T017-T023) =====
+
+    /// Trigger reference search for symbol at cursor position. (T017)
+    fn triggerReferenceSearch(self: *Self) void {
+        // Get current file path from preview
+        const file_path = self.preview_path orelse {
+            self.reference_error_message = "No file open";
+            self.mode = .reference_list;
+            return;
+        };
+
+        // Check if it's a Zig file
+        if (!std.mem.endsWith(u8, file_path, ".zig")) {
+            self.reference_error_message = "Unsupported file type";
+            self.mode = .reference_list;
+            return;
+        }
+
+        // Get cursor position (use preview_scroll as line estimate)
+        const line: u32 = @intCast(self.preview_scroll);
+        const column: u32 = 0; // We don't track column in preview, use 0
+
+        // Initialize LSP client if needed
+        if (self.lsp_client == null) {
+            self.lsp_client = lsp.LspClient.init(self.allocator);
+
+            // Get root path from file_tree
+            const root_path = if (self.file_tree) |ft| ft.root_path else file_path;
+
+            self.lsp_client.?.start(root_path) catch |err| {
+                switch (err) {
+                    lsp.LspClient.Error.ServerNotFound => {
+                        self.reference_error_message = "Language server not available";
+                    },
+                    else => {
+                        self.reference_error_message = "Failed to start language server";
+                    },
+                }
+                self.lsp_client.?.deinit();
+                self.lsp_client = null;
+                self.mode = .reference_list;
+                return;
+            };
+        }
+
+        // Send didOpen notification
+        const content = self.preview_content orelse "";
+        self.lsp_client.?.didOpen(file_path, content) catch {
+            self.reference_error_message = "Failed to open document";
+            self.mode = .reference_list;
+            return;
+        };
+
+        // Find references
+        const refs = self.lsp_client.?.findReferences(file_path, line, column) catch {
+            self.reference_error_message = "Request timed out";
+            self.mode = .reference_list;
+            return;
+        };
+
+        if (refs.len == 0) {
+            self.reference_error_message = "No references found";
+            self.mode = .reference_list;
+            return;
+        }
+
+        // Build reference list
+        self.clearReferenceList();
+
+        const symbol_name = std.fs.path.basename(file_path);
+        self.reference_list = reference.ReferenceList.init(self.allocator, symbol_name) catch {
+            self.reference_error_message = "Out of memory";
+            self.mode = .reference_list;
+            return;
+        };
+
+        for (refs) |ref| {
+            self.reference_list.?.addReference(.{
+                .file_path = self.allocator.dupe(u8, ref.file_path) catch continue,
+                .line = ref.line,
+                .column = ref.column,
+                .snippet = self.allocator.dupe(u8, ref.snippet) catch self.allocator.dupe(u8, "") catch continue,
+                .context_before = self.allocator.dupe(u8, "") catch continue,
+                .context_after = self.allocator.dupe(u8, "") catch continue,
+            }) catch continue;
+        }
+
+        // Free LSP response
+        for (refs) |ref| {
+            self.allocator.free(ref.file_path);
+            self.allocator.free(ref.snippet);
+        }
+        self.allocator.free(refs);
+
+        self.reference_error_message = null;
+        self.mode = .reference_list;
+    }
+
+    /// Handle key in reference list mode. (T018)
+    fn handleReferenceListKey(self: *Self, key_char: u21) void {
+        // If there's an error message, any key closes
+        if (self.reference_error_message != null) {
+            self.reference_error_message = null;
+            self.mode = .preview;
+            return;
+        }
+
+        switch (key_char) {
+            'j' => {
+                if (self.reference_list) |*ref_list| {
+                    ref_list.moveDown();
+                }
+            },
+            'k' => {
+                if (self.reference_list) |*ref_list| {
+                    ref_list.moveUp();
+                }
+            },
+            'o' => {
+                // Preview snippet (T020)
+                self.previewReferenceSnippet();
+            },
+            vaxis.Key.enter => {
+                // Open in $EDITOR (T021)
+                self.openReferenceInEditor();
+            },
+            'q', vaxis.Key.escape => {
+                // Close reference list and return to preview
+                self.clearReferenceList();
+                self.mode = .preview;
+            },
+            else => {},
+        }
+    }
+
+    /// Preview the code snippet for current reference. (T020)
+    fn previewReferenceSnippet(self: *Self) void {
+        const ref_list = self.reference_list orelse return;
+        const current = ref_list.getCurrent() orelse return;
+
+        // Show context in status message
+        const msg_buf = &self.status_message_buf;
+        const msg = std.fmt.bufPrint(msg_buf, "{s}:{d}", .{
+            std.fs.path.basename(current.file_path),
+            current.line + 1,
+        }) catch return;
+        self.status_message = msg;
+    }
+
+    /// Open current reference in $EDITOR. (T021)
+    fn openReferenceInEditor(self: *Self) void {
+        const ref_list = self.reference_list orelse return;
+        const current = ref_list.getCurrent() orelse return;
+
+        // Get editor from $EDITOR or fall back to defaults
+        const editor = std.posix.getenv("EDITOR") orelse
+            std.posix.getenv("VISUAL") orelse "vi";
+
+        // Build command with line number
+        var line_buf: [32]u8 = undefined;
+        const line_arg = std.fmt.bufPrint(&line_buf, "+{d}", .{current.line + 1}) catch return;
+
+        // Launch editor
+        var child = std.process.Child.init(&[_][]const u8{ editor, line_arg, current.file_path }, self.allocator);
+        child.spawn() catch return;
+        _ = child.wait() catch {};
+
+        // Clear reference list and return to tree view after editor
+        self.clearReferenceList();
+        self.closePreview();
+    }
+
+    /// Clear reference list and free memory.
+    fn clearReferenceList(self: *Self) void {
+        if (self.reference_list) |*ref_list| {
+            ref_list.deinit();
+            self.reference_list = null;
+        }
+        self.reference_error_message = null;
     }
 
     fn closePreview(self: *Self) void {
@@ -2060,6 +2282,15 @@ pub const App = struct {
             .help => {
                 try ui.renderHelp(win);
             },
+            .reference_list => {
+                // Phase 4.0: Render reference list (T019)
+                try ui.renderReferenceList(
+                    win,
+                    if (self.reference_list) |*rl| rl else null,
+                    self.reference_error_message,
+                    arena,
+                );
+            },
         }
 
         try self.vx.render(writer);
@@ -2283,6 +2514,12 @@ pub const App = struct {
             .preview => {
                 _ = win.printSegment(.{
                     .text = "j/k:scroll  q/o/h:close",
+                    .style = .{ .fg = .{ .index = 8 } },
+                }, .{ .row_offset = row, .col_offset = 0 });
+            },
+            .reference_list => {
+                _ = win.printSegment(.{
+                    .text = "j/k:nav  Enter:open  o:preview  q:close",
                     .style = .{ .fg = .{ .index = 8 } },
                 }, .{ .row_offset = row, .col_offset = 0 });
             },
