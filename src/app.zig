@@ -986,7 +986,7 @@ pub const App = struct {
         };
         defer file.close();
 
-        const max_size = 100 * 1024; // 100KB max
+        const max_size = 10 * 1024 * 1024; // 10MB max (images handled separately)
         const content = file.readToEndAlloc(self.allocator, max_size) catch |err| {
             // Check if file is too large by attempting to get metadata
             const stat = file.stat() catch {
