@@ -21,8 +21,8 @@ pub const CallHierarchyItem = struct {
 pub const CallGraphNode = struct {
     allocator: std.mem.Allocator,
     item: CallHierarchyItem,
-    incoming: std.ArrayList(*CallGraphNode),
-    outgoing: std.ArrayList(*CallGraphNode),
+    incoming: std.ArrayList(usize),
+    outgoing: std.ArrayList(usize),
     visited: bool,
 
     pub fn init(allocator: std.mem.Allocator, item: CallHierarchyItem) CallGraphNode {
@@ -41,12 +41,12 @@ pub const CallGraphNode = struct {
         self.outgoing.deinit(self.allocator);
     }
 
-    pub fn addIncoming(self: *CallGraphNode, node: *CallGraphNode) !void {
-        try self.incoming.append(self.allocator, node);
+    pub fn addIncoming(self: *CallGraphNode, node_idx: usize) !void {
+        try self.incoming.append(self.allocator, node_idx);
     }
 
-    pub fn addOutgoing(self: *CallGraphNode, node: *CallGraphNode) !void {
-        try self.outgoing.append(self.allocator, node);
+    pub fn addOutgoing(self: *CallGraphNode, node_idx: usize) !void {
+        try self.outgoing.append(self.allocator, node_idx);
     }
 };
 
@@ -87,8 +87,8 @@ pub const CallHierarchyGraph = struct {
         self.nodes.clearRetainingCapacity();
 
         // Create root node
-        const root_node = try self.createNode(root_item);
-        self.root = root_node;
+        const root_idx = try self.createNode(root_item);
+        self.root = &self.nodes.items[root_idx];
 
         // Add incoming calls (callers)
         for (incoming) |item| {
@@ -100,9 +100,9 @@ pub const CallHierarchyGraph = struct {
                 .column = item.column,
                 .snippet = try self.allocator.dupe(u8, item.snippet),
             };
-            const caller_node = try self.createNode(caller_item);
-            try caller_node.addOutgoing(root_node);
-            try root_node.addIncoming(caller_node);
+            const caller_idx = try self.createNode(caller_item);
+            try self.nodes.items[caller_idx].addOutgoing(root_idx);
+            try self.nodes.items[root_idx].addIncoming(caller_idx);
         }
 
         // Add outgoing calls (callees)
@@ -115,9 +115,9 @@ pub const CallHierarchyGraph = struct {
                 .column = item.column,
                 .snippet = try self.allocator.dupe(u8, item.snippet),
             };
-            const callee_node = try self.createNode(callee_item);
-            try root_node.addOutgoing(callee_node);
-            try callee_node.addIncoming(root_node);
+            const callee_idx = try self.createNode(callee_item);
+            try self.nodes.items[root_idx].addOutgoing(callee_idx);
+            try self.nodes.items[callee_idx].addIncoming(root_idx);
         }
     }
 
@@ -151,11 +151,8 @@ pub const CallHierarchyGraph = struct {
 
         // Write edges (outgoing calls)
         for (self.nodes.items, 0..) |*node, i| {
-            for (node.outgoing.items) |target| {
-                const target_idx = self.findNodeIndex(target);
-                if (target_idx) |idx| {
-                    try writer.print("    n{d} -> n{d};\n", .{ i, idx });
-                }
+            for (node.outgoing.items) |target_idx| {
+                try writer.print("    n{d} -> n{d};\n", .{ i, target_idx });
             }
         }
 
@@ -179,7 +176,8 @@ pub const CallHierarchyGraph = struct {
         // Write incoming calls (callers)
         if (root.incoming.items.len > 0) {
             try writer.writeAll("Callers:\n");
-            for (root.incoming.items) |caller| {
+            for (root.incoming.items) |caller_idx| {
+                const caller = &self.nodes.items[caller_idx];
                 try writer.print("  ← {s} ({s}:{d})\n", .{
                     caller.item.name,
                     std.fs.path.basename(caller.item.file_path),
@@ -199,7 +197,8 @@ pub const CallHierarchyGraph = struct {
         // Write outgoing calls (callees)
         if (root.outgoing.items.len > 0) {
             try writer.writeAll("\nCallees:\n");
-            for (root.outgoing.items) |callee| {
+            for (root.outgoing.items) |callee_idx| {
+                const callee = &self.nodes.items[callee_idx];
                 try writer.print("  → {s} ({s}:{d})\n", .{
                     callee.item.name,
                     std.fs.path.basename(callee.item.file_path),
@@ -238,17 +237,10 @@ pub const CallHierarchyGraph = struct {
         return null;
     }
 
-    fn createNode(self: *CallHierarchyGraph, item: CallHierarchyItem) !*CallGraphNode {
+    fn createNode(self: *CallHierarchyGraph, item: CallHierarchyItem) !usize {
         const node = CallGraphNode.init(self.allocator, item);
         try self.nodes.append(self.allocator, node);
-        return &self.nodes.items[self.nodes.items.len - 1];
-    }
-
-    fn findNodeIndex(self: *CallHierarchyGraph, node: *CallGraphNode) ?usize {
-        for (self.nodes.items, 0..) |*n, i| {
-            if (n == node) return i;
-        }
-        return null;
+        return self.nodes.items.len - 1;
     }
 };
 

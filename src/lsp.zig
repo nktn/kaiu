@@ -55,6 +55,9 @@ const HEADER_DELIMITER = "\r\n\r\n";
 /// LSP message timeout in nanoseconds (3 seconds per SC-002).
 pub const LSP_TIMEOUT_NS: u64 = 3 * std.time.ns_per_s;
 
+/// Maximum LSP message size (10 MB).
+const MAX_MESSAGE_SIZE: usize = 10 * 1024 * 1024;
+
 /// LSP client for communicating with language servers (e.g., zls) via JSON-RPC over stdio.
 ///
 /// Lifecycle:
@@ -72,6 +75,7 @@ pub const LspClient = struct {
     root_path: ?[]const u8,
     initialized: bool,
     read_buffer: std.ArrayList(u8),
+    last_parsed: ?std.json.Parsed(std.json.Value),
 
     pub const Error = error{
         ServerNotFound,
@@ -95,11 +99,17 @@ pub const LspClient = struct {
             .root_path = null,
             .initialized = false,
             .read_buffer = .empty,
+            .last_parsed = null,
         };
     }
 
     /// Clean up resources. (T005)
     pub fn deinit(self: *LspClient) void {
+        // Free last parsed result if any
+        if (self.last_parsed) |*prev| {
+            prev.deinit();
+            self.last_parsed = null;
+        }
         self.stop();
         if (self.root_path) |path| {
             self.allocator.free(path);
@@ -275,12 +285,12 @@ pub const LspClient = struct {
 
             const line_val = start_pos.get("line") orelse continue;
             const line: u32 = switch (line_val) {
-                .integer => |i| @intCast(i),
+                .integer => |i| if (i >= 0 and i <= std.math.maxInt(u32)) @intCast(i) else continue,
                 else => continue,
             };
             const char_val = start_pos.get("character") orelse continue;
             const column: u32 = switch (char_val) {
-                .integer => |i| @intCast(i),
+                .integer => |i| if (i >= 0 and i <= std.math.maxInt(u32)) @intCast(i) else continue,
                 else => continue,
             };
 
@@ -293,7 +303,11 @@ pub const LspClient = struct {
                 .line = line,
                 .column = column,
                 .snippet = snippet,
-            }) catch continue;
+            }) catch {
+                self.allocator.free(path);
+                self.allocator.free(snippet);
+                continue;
+            };
         }
 
         return refs.toOwnedSlice(self.allocator) catch return Error.OutOfMemory;
@@ -429,11 +443,11 @@ pub const LspClient = struct {
             };
 
             // Extract kind
-            const kind_val = switch (item_obj.get("kind") orelse continue) {
-                .integer => |i| @as(u8, @intCast(i)),
+            const kind_val: u8 = switch (item_obj.get("kind") orelse continue) {
+                .integer => |i| if (i >= 0 and i <= 255) @intCast(i) else continue,
                 else => continue,
             };
-            const kind: SymbolKind = @enumFromInt(kind_val);
+            const kind = SymbolKind.fromInt(kind_val) orelse continue;
 
             // Extract URI and convert to path
             const uri = switch (item_obj.get("uri") orelse continue) {
@@ -452,12 +466,12 @@ pub const LspClient = struct {
                 .object => |obj| obj,
                 else => continue,
             };
-            const line_val = switch (range_start.get("line") orelse continue) {
-                .integer => |i| @as(u32, @intCast(i)),
+            const line_val: u32 = switch (range_start.get("line") orelse continue) {
+                .integer => |i| if (i >= 0 and i <= std.math.maxInt(u32)) @intCast(i) else continue,
                 else => continue,
             };
-            const col_val = switch (range_start.get("character") orelse continue) {
-                .integer => |i| @as(u32, @intCast(i)),
+            const col_val: u32 = switch (range_start.get("character") orelse continue) {
+                .integer => |i| if (i >= 0 and i <= std.math.maxInt(u32)) @intCast(i) else continue,
                 else => continue,
             };
 
@@ -465,14 +479,22 @@ pub const LspClient = struct {
             const snippet = readSnippetFromFile(self.allocator, path, line_val) catch
                 self.allocator.dupe(u8, "") catch continue;
 
+            const name_dupe = self.allocator.dupe(u8, name) catch continue;
+            errdefer self.allocator.free(name_dupe);
+
             result.append(self.allocator, .{
-                .name = self.allocator.dupe(u8, name) catch continue,
+                .name = name_dupe,
                 .kind = kind,
                 .file_path = path,
                 .line = line_val,
                 .column = col_val,
                 .snippet = snippet,
-            }) catch continue;
+            }) catch {
+                self.allocator.free(name_dupe);
+                self.allocator.free(path);
+                self.allocator.free(snippet);
+                continue;
+            };
         }
 
         return result.toOwnedSlice(self.allocator) catch return Error.OutOfMemory;
@@ -610,6 +632,7 @@ pub const LspClient = struct {
         while (true) {
             // Read Content-Length header
             const content_length = try self.readContentLength(stdout);
+            if (content_length > MAX_MESSAGE_SIZE) return error.InvalidResponse;
 
             // Read content
             self.read_buffer.clearRetainingCapacity();
@@ -620,7 +643,12 @@ pub const LspClient = struct {
 
             // Parse JSON
             const parsed = std.json.parseFromSlice(std.json.Value, self.allocator, self.read_buffer.items, .{}) catch return error.InvalidResponse;
-            defer parsed.deinit();
+            // Free previous parsed result
+            if (self.last_parsed) |*prev| {
+                prev.deinit();
+            }
+            // Store parsed result to keep memory alive
+            self.last_parsed = parsed;
 
             // Check if this is our response
             if (parsed.value.object.get("id")) |id_val| {
@@ -716,8 +744,8 @@ fn uriToPath(allocator: std.mem.Allocator, uri: []const u8) ![]const u8 {
 
 /// Read a single line from a file at the given line number (0-indexed).
 fn readSnippetFromFile(allocator: std.mem.Allocator, path: []const u8, line: u32) ![]const u8 {
-    // Read the entire file and split by lines
-    const content = std.fs.cwd().readFileAlloc(allocator, path, 10 * 1024 * 1024) catch {
+    // Read the entire file and split by lines (limit to 1MB for snippet extraction)
+    const content = std.fs.cwd().readFileAlloc(allocator, path, 1 * 1024 * 1024) catch {
         return allocator.dupe(u8, "");
     };
     defer allocator.free(content);

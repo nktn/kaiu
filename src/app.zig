@@ -1465,32 +1465,44 @@ pub const App = struct {
         }
 
         // Get incoming and outgoing calls
+        var incoming_success = true;
         const incoming = self.lsp_client.?.getIncomingCalls(
             current.file_path,
             current.line,
             current.column,
-        ) catch &[_]lsp.CallHierarchyItem{};
+        ) catch blk: {
+            incoming_success = false;
+            break :blk &[_]lsp.CallHierarchyItem{};
+        };
         defer {
-            for (incoming) |*item| {
-                self.allocator.free(item.name);
-                self.allocator.free(item.file_path);
-                self.allocator.free(item.snippet);
+            if (incoming_success) {
+                for (incoming) |*item| {
+                    self.allocator.free(item.name);
+                    self.allocator.free(item.file_path);
+                    self.allocator.free(item.snippet);
+                }
+                self.allocator.free(incoming);
             }
-            self.allocator.free(incoming);
         }
 
+        var outgoing_success = true;
         const outgoing = self.lsp_client.?.getOutgoingCalls(
             current.file_path,
             current.line,
             current.column,
-        ) catch &[_]lsp.CallHierarchyItem{};
+        ) catch blk: {
+            outgoing_success = false;
+            break :blk &[_]lsp.CallHierarchyItem{};
+        };
         defer {
-            for (outgoing) |*item| {
-                self.allocator.free(item.name);
-                self.allocator.free(item.file_path);
-                self.allocator.free(item.snippet);
+            if (outgoing_success) {
+                for (outgoing) |*item| {
+                    self.allocator.free(item.name);
+                    self.allocator.free(item.file_path);
+                    self.allocator.free(item.snippet);
+                }
+                self.allocator.free(outgoing);
             }
-            self.allocator.free(outgoing);
         }
 
         // Build graph

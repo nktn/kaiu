@@ -873,7 +873,8 @@ pub fn renderReferenceList(
 
         // File path (basename only, max 38 chars)
         const basename = std.fs.path.basename(ref.file_path);
-        const display_path = if (basename.len > 38) basename[0..38] else basename;
+        const truncated_path = if (basename.len > 38) basename[0..38] else basename;
+        const display_path = sanitizeForDisplay(arena, truncated_path) catch truncated_path;
         _ = win.printSegment(.{
             .text = display_path,
             .style = style,
@@ -888,7 +889,8 @@ pub fn renderReferenceList(
 
         // Code snippet (max width - 50)
         const snippet_max = if (width > 50) width - 50 else 10;
-        const snippet = if (ref.snippet.len > snippet_max) ref.snippet[0..@intCast(snippet_max)] else ref.snippet;
+        const truncated_snippet = if (ref.snippet.len > snippet_max) ref.snippet[0..@intCast(snippet_max)] else ref.snippet;
+        const snippet = sanitizeForDisplay(arena, truncated_snippet) catch truncated_snippet;
         _ = win.printSegment(.{
             .text = snippet,
             .style = style,
@@ -975,7 +977,6 @@ pub fn renderReferenceGraph(
     scroll_offset: usize,
     arena: std.mem.Allocator,
 ) !void {
-    _ = arena;
     const height = win.height;
     const width = win.width;
 
@@ -1024,8 +1025,9 @@ pub fn renderReferenceGraph(
 
         if (display_row >= height - 2) break; // Leave room for status bar
 
-        // Truncate line if too long
-        const display_line = if (line.len > width) line[0..width] else line;
+        // Truncate line if too long and sanitize
+        const truncated_line = if (line.len > width) line[0..width] else line;
+        const display_line = sanitizeForDisplay(arena, truncated_line) catch truncated_line;
         _ = win.printSegment(.{
             .text = display_line,
         }, .{ .row_offset = display_row, .col_offset = 0 });
