@@ -745,7 +745,7 @@ fn uriToPath(allocator: std.mem.Allocator, uri: []const u8) ![]const u8 {
 /// Read a single line from a file at the given line number (0-indexed).
 fn readSnippetFromFile(allocator: std.mem.Allocator, path: []const u8, line: u32) ![]const u8 {
     // Read the entire file and split by lines (limit to 1MB for snippet extraction)
-    const content = std.fs.cwd().readFileAlloc(allocator, path, 1 * 1024 * 1024) catch {
+    const content = std.fs.cwd().readFileAlloc(allocator, path, 10 * 1024 * 1024) catch {
         return allocator.dupe(u8, "");
     };
     defer allocator.free(content);
