@@ -899,14 +899,144 @@ pub fn renderReferenceList(
 
     // Status bar at bottom
     const status_row = height - 2;
+
+    // Show filter pattern if active (T039)
+    var col_offset: u16 = 0;
+    if (rl.filter_pattern) |pattern| {
+        const filter_str = std.fmt.allocPrint(arena, "Filter: {s} ", .{pattern}) catch "";
+        _ = win.printSegment(.{
+            .text = filter_str,
+            .style = .{ .fg = .{ .index = 3 } }, // Yellow
+        }, .{ .row_offset = status_row, .col_offset = 0 });
+        col_offset = @intCast(filter_str.len);
+    }
+
     const count_str = std.fmt.allocPrint(arena, "{d}/{d} references", .{ rl.cursor + 1, visible_count }) catch "";
     _ = win.printSegment(.{
         .text = count_str,
         .style = .{ .fg = .{ .index = 8 } },
-    }, .{ .row_offset = status_row, .col_offset = 0 });
+    }, .{ .row_offset = status_row, .col_offset = col_offset });
 
     // Help hint
-    const hint = "j/k:move Enter:open o:preview q:close";
+    const hint = "j/k:move Enter:open o:preview f:filter G:graph q:close";
+    const hint_col: u16 = if (width > hint.len) width - @as(u16, @intCast(hint.len)) else 0;
+    _ = win.printSegment(.{
+        .text = hint,
+        .style = .{ .fg = .{ .index = 8 } },
+    }, .{ .row_offset = status_row, .col_offset = hint_col });
+}
+
+/// Render filter input overlay for reference list (T038, T039)
+pub fn renderFilterInput(win: vaxis.Window, filter_text: []const u8) !void {
+    const height = win.height;
+    const width = win.width;
+
+    // Draw input at the bottom of the screen
+    const input_row = height - 3;
+
+    // Clear the input row
+    var spaces: [80]u8 = undefined;
+    const fill_len = @min(width, 80);
+    @memset(spaces[0..fill_len], ' ');
+    _ = win.printSegment(.{
+        .text = spaces[0..fill_len],
+        .style = .{ .reverse = true },
+    }, .{ .row_offset = input_row, .col_offset = 0 });
+
+    // Draw prompt
+    const prompt = "Filter: ";
+    _ = win.printSegment(.{
+        .text = prompt,
+        .style = .{ .reverse = true, .bold = true },
+    }, .{ .row_offset = input_row, .col_offset = 0 });
+
+    // Draw filter text
+    const max_text_len = if (width > prompt.len + 1) width - prompt.len - 1 else 0;
+    const display_text = if (filter_text.len > max_text_len) filter_text[0..@intCast(max_text_len)] else filter_text;
+    _ = win.printSegment(.{
+        .text = display_text,
+        .style = .{ .reverse = true },
+    }, .{ .row_offset = input_row, .col_offset = @intCast(prompt.len) });
+
+    // Draw cursor
+    const cursor_col = prompt.len + filter_text.len;
+    if (cursor_col < width) {
+        _ = win.printSegment(.{
+            .text = "_",
+            .style = .{ .reverse = true, .bold = true },
+        }, .{ .row_offset = input_row, .col_offset = @intCast(cursor_col) });
+    }
+}
+
+/// Render call hierarchy graph in text mode (T032: Fallback display)
+pub fn renderReferenceGraph(
+    win: vaxis.Window,
+    text_content: ?[]const u8,
+    scroll_offset: usize,
+    arena: std.mem.Allocator,
+) !void {
+    _ = arena;
+    const height = win.height;
+    const width = win.width;
+
+    win.clear();
+
+    // Title bar
+    const title = "Call Hierarchy Graph";
+    _ = win.printSegment(.{
+        .text = title,
+        .style = .{ .bold = true, .reverse = true },
+    }, .{ .row_offset = 0, .col_offset = 0 });
+
+    // Fill rest of title bar
+    if (width > title.len) {
+        var spaces: [80]u8 = undefined;
+        const fill_len = @min(width - title.len, 80);
+        @memset(spaces[0..fill_len], ' ');
+        _ = win.printSegment(.{
+            .text = spaces[0..fill_len],
+            .style = .{ .reverse = true },
+        }, .{ .row_offset = 0, .col_offset = @intCast(title.len) });
+    }
+
+    // Show text content with scrolling
+    const content = text_content orelse {
+        const msg = "No call hierarchy data available";
+        const row: u16 = height / 2;
+        const col: u16 = if (width > msg.len) (width - @as(u16, @intCast(msg.len))) / 2 else 0;
+        _ = win.printSegment(.{
+            .text = msg,
+            .style = .{ .fg = .{ .index = 8 } },
+        }, .{ .row_offset = row, .col_offset = col });
+        return;
+    };
+
+    // Split content into lines and display with scroll
+    var lines_iter = std.mem.splitScalar(u8, content, '\n');
+    var line_num: usize = 0;
+    var display_row: u16 = 2; // Start after title bar
+
+    while (lines_iter.next()) |line| {
+        if (line_num < scroll_offset) {
+            line_num += 1;
+            continue;
+        }
+
+        if (display_row >= height - 2) break; // Leave room for status bar
+
+        // Truncate line if too long
+        const display_line = if (line.len > width) line[0..width] else line;
+        _ = win.printSegment(.{
+            .text = display_line,
+        }, .{ .row_offset = display_row, .col_offset = 0 });
+
+        display_row += 1;
+        line_num += 1;
+    }
+
+    // Status bar at bottom
+    const status_row = height - 2;
+    const hint = "j/k:scroll  l/q:back to list";
     const hint_col: u16 = if (width > hint.len) width - @as(u16, @intCast(hint.len)) else 0;
     _ = win.printSegment(.{
         .text = hint,

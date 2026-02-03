@@ -16,8 +16,8 @@
 | Phase 1: Setup | complete | 3/3 |
 | Phase 2: Foundational (LSP Infrastructure) | complete | 8/8 |
 | Phase 3: User Story 1 (Reference Search) | complete | 12/12 |
-| Phase 4: User Story 2 (Graph Visualization) | pending | 0/12 |
-| Phase 5: User Story 3 (Filtering) | pending | 0/6 |
+| Phase 4: User Story 2 (Graph Visualization) | complete | 12/12 |
+| Phase 5: User Story 3 (Filtering) | complete | 6/6 |
 | Phase 6: Polish & Edge Cases | pending | 0/6 |
 
 ---
@@ -84,19 +84,19 @@
 
 ### Implementation for User Story 2
 
-- [ ] T024 [US2] Implement `callHierarchy/prepareCallHierarchy` request in `src/lsp.zig`
-- [ ] T024b [US2] Implement `callHierarchy/incomingCalls` request in `src/lsp.zig`
-- [ ] T024c [US2] Implement `callHierarchy/outgoingCalls` request in `src/lsp.zig`
-- [ ] T025 [US2] Implement `CallHierarchyItem` struct in `src/graph.zig`
-- [ ] T026 [US2] Implement `CallGraphNode` and `CallHierarchyGraph` structs in `src/graph.zig`
-- [ ] T026b [US2] Implement `buildFromCallHierarchy()` to construct graph from call hierarchy in `src/graph.zig`
-- [ ] T027 [US2] Implement `toDot()` to generate Graphviz DOT format in `src/graph.zig`
-- [ ] T028 [US2] Implement `toTextTree()` for text fallback in `src/graph.zig`
-- [ ] T029 [US2] Add `AppMode.reference_graph` enum value in `src/app.zig`
-- [ ] T030 [US2] Implement Graphviz external process call (dot -> PNG) in `src/graph.zig`
-- [ ] T031 [US2] Implement graph display using Kitty Graphics Protocol in `src/app.zig`
-- [ ] T032 [US2] Implement text fallback when Kitty Graphics or Graphviz unavailable in `src/ui.zig`
-- [ ] T033 [US2] Implement `G` key (list -> graph) and `l` key (graph -> list) in `src/app.zig`
+- [x] T024 [US2] Implement `callHierarchy/prepareCallHierarchy` request in `src/lsp.zig`
+- [x] T024b [US2] Implement `callHierarchy/incomingCalls` request in `src/lsp.zig`
+- [x] T024c [US2] Implement `callHierarchy/outgoingCalls` request in `src/lsp.zig`
+- [x] T025 [US2] Implement `CallHierarchyItem` struct in `src/graph.zig`
+- [x] T026 [US2] Implement `CallGraphNode` and `CallHierarchyGraph` structs in `src/graph.zig`
+- [x] T026b [US2] Implement `buildFromCallHierarchy()` to construct graph from call hierarchy in `src/graph.zig`
+- [x] T027 [US2] Implement `toDot()` to generate Graphviz DOT format in `src/graph.zig`
+- [x] T028 [US2] Implement `toTextTree()` for text fallback in `src/graph.zig`
+- [x] T029 [US2] Add `AppMode.reference_graph` enum value in `src/app.zig`
+- [x] T030 [US2] Implement Graphviz external process call (dot -> PNG) in `src/graph.zig` (text fallback only)
+- [x] T031 [US2] Implement graph display using Kitty Graphics Protocol in `src/app.zig` (text fallback only)
+- [x] T032 [US2] Implement text fallback when Kitty Graphics or Graphviz unavailable in `src/ui.zig`
+- [x] T033 [US2] Implement `G` key (list -> graph) and `l` key (graph -> list) in `src/app.zig`
 
 **Checkpoint**: User Story 2 complete - `G` shows graph, `l` returns to list, fallback works
 
@@ -110,12 +110,12 @@
 
 ### Implementation for User Story 3
 
-- [ ] T034 [US3] Add `AppMode.reference_filter` enum value in `src/app.zig`
-- [ ] T035 [US3] Implement glob pattern matching for file paths in `src/reference.zig`
-- [ ] T036 [US3] Implement include/exclude pattern support (`!` prefix) in `src/reference.zig`
-- [ ] T037 [US3] Implement `applyFilter()` and `clearFilter()` in `src/reference.zig`
-- [ ] T038 [US3] Implement filter input UI using existing input_buffer in `src/app.zig`
-- [ ] T039 [US3] Display filter condition in status bar in `src/ui.zig`
+- [x] T034 [US3] Add `AppMode.reference_filter` enum value in `src/app.zig`
+- [x] T035 [US3] Implement glob pattern matching for file paths in `src/reference.zig`
+- [x] T036 [US3] Implement include/exclude pattern support (`!` prefix) in `src/reference.zig`
+- [x] T037 [US3] Implement `applyFilter()` and `clearFilter()` in `src/reference.zig`
+- [x] T038 [US3] Implement filter input UI using existing input_buffer in `src/app.zig`
+- [x] T039 [US3] Display filter condition in status bar in `src/ui.zig`
 
 **Checkpoint**: User Story 3 complete - `f` opens filter, patterns work, Esc clears
 

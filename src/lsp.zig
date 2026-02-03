@@ -299,6 +299,47 @@ pub const LspClient = struct {
         return refs.toOwnedSlice(self.allocator) catch return Error.OutOfMemory;
     }
 
+    /// Send textDocument/prepareCallHierarchy request. (T024)
+    /// Returns the CallHierarchyItem for the symbol at the given position.
+    fn prepareCallHierarchy(self: *LspClient, file_path: []const u8, line: u32, column: u32) Error!?std.json.Value {
+        if (!self.isRunning()) return Error.ServerNotRunning;
+
+        const uri = pathToUri(self.allocator, file_path) catch return Error.OutOfMemory;
+        defer self.allocator.free(uri);
+
+        var params = std.json.ObjectMap.init(self.allocator);
+        defer params.deinit();
+
+        // textDocumentIdentifier
+        var text_document = std.json.ObjectMap.init(self.allocator);
+        defer text_document.deinit();
+        text_document.put("uri", std.json.Value{ .string = uri }) catch return Error.OutOfMemory;
+        params.put("textDocument", std.json.Value{ .object = text_document }) catch return Error.OutOfMemory;
+
+        // position
+        var position = std.json.ObjectMap.init(self.allocator);
+        defer position.deinit();
+        position.put("line", std.json.Value{ .integer = @intCast(line) }) catch return Error.OutOfMemory;
+        position.put("character", std.json.Value{ .integer = @intCast(column) }) catch return Error.OutOfMemory;
+        params.put("position", std.json.Value{ .object = position }) catch return Error.OutOfMemory;
+
+        // Send request
+        const response = self.sendRequest("textDocument/prepareCallHierarchy", std.json.Value{ .object = params }) catch return Error.InvalidResponse;
+
+        // Response is array of CallHierarchyItem or null
+        if (response == .null) return null;
+
+        const items = switch (response) {
+            .array => |arr| arr.items,
+            else => return null,
+        };
+
+        if (items.len == 0) return null;
+
+        // Return the first item (the symbol at cursor)
+        return items[0];
+    }
+
     /// Send callHierarchy/prepareCallHierarchy + incomingCalls request (US2: Incoming calls). (T024b)
     pub fn getIncomingCalls(
         self: *LspClient,
@@ -307,11 +348,19 @@ pub const LspClient = struct {
         column: u32,
     ) Error![]CallHierarchyItem {
         if (!self.isRunning()) return Error.ServerNotRunning;
-        _ = file_path;
-        _ = line;
-        _ = column;
-        // TODO: T024b - Implement callHierarchy/incomingCalls request
-        return &[_]CallHierarchyItem{};
+
+        // First, get the CallHierarchyItem for the symbol
+        const prepare_result = try self.prepareCallHierarchy(file_path, line, column);
+        const item = prepare_result orelse return &[_]CallHierarchyItem{};
+
+        // Now request incoming calls
+        var params = std.json.ObjectMap.init(self.allocator);
+        defer params.deinit();
+        params.put("item", item) catch return Error.OutOfMemory;
+
+        const response = self.sendRequest("callHierarchy/incomingCalls", std.json.Value{ .object = params }) catch return Error.InvalidResponse;
+
+        return self.parseCallHierarchyResponse(response, true);
     }
 
     /// Send callHierarchy/prepareCallHierarchy + outgoingCalls request (US2: Outgoing calls). (T024c)
@@ -322,11 +371,111 @@ pub const LspClient = struct {
         column: u32,
     ) Error![]CallHierarchyItem {
         if (!self.isRunning()) return Error.ServerNotRunning;
-        _ = file_path;
-        _ = line;
-        _ = column;
-        // TODO: T024c - Implement callHierarchy/outgoingCalls request
-        return &[_]CallHierarchyItem{};
+
+        // First, get the CallHierarchyItem for the symbol
+        const prepare_result = try self.prepareCallHierarchy(file_path, line, column);
+        const item = prepare_result orelse return &[_]CallHierarchyItem{};
+
+        // Now request outgoing calls
+        var params = std.json.ObjectMap.init(self.allocator);
+        defer params.deinit();
+        params.put("item", item) catch return Error.OutOfMemory;
+
+        const response = self.sendRequest("callHierarchy/outgoingCalls", std.json.Value{ .object = params }) catch return Error.InvalidResponse;
+
+        return self.parseCallHierarchyResponse(response, false);
+    }
+
+    /// Parse callHierarchy/incomingCalls or outgoingCalls response.
+    fn parseCallHierarchyResponse(self: *LspClient, response: std.json.Value, is_incoming: bool) Error![]CallHierarchyItem {
+        if (response == .null) return &[_]CallHierarchyItem{};
+
+        const items = switch (response) {
+            .array => |arr| arr.items,
+            else => return &[_]CallHierarchyItem{},
+        };
+
+        if (items.len == 0) return &[_]CallHierarchyItem{};
+
+        var result: std.ArrayList(CallHierarchyItem) = .empty;
+        errdefer {
+            for (result.items) |*item| {
+                self.allocator.free(item.name);
+                self.allocator.free(item.file_path);
+                self.allocator.free(item.snippet);
+            }
+            result.deinit(self.allocator);
+        }
+
+        for (items) |call_item| {
+            const call_obj = switch (call_item) {
+                .object => |obj| obj,
+                else => continue,
+            };
+
+            // For incoming calls, the caller is in "from" field
+            // For outgoing calls, the callee is in "to" field
+            const field_name = if (is_incoming) "from" else "to";
+            const hierarchy_item = call_obj.get(field_name) orelse continue;
+            const item_obj = switch (hierarchy_item) {
+                .object => |obj| obj,
+                else => continue,
+            };
+
+            // Extract name
+            const name = switch (item_obj.get("name") orelse continue) {
+                .string => |s| s,
+                else => continue,
+            };
+
+            // Extract kind
+            const kind_val = switch (item_obj.get("kind") orelse continue) {
+                .integer => |i| @as(u8, @intCast(i)),
+                else => continue,
+            };
+            const kind: SymbolKind = @enumFromInt(kind_val);
+
+            // Extract URI and convert to path
+            const uri = switch (item_obj.get("uri") orelse continue) {
+                .string => |s| s,
+                else => continue,
+            };
+            const path = uriToPath(self.allocator, uri) catch continue;
+            errdefer self.allocator.free(path);
+
+            // Extract range for line/column
+            const range = switch (item_obj.get("range") orelse continue) {
+                .object => |obj| obj,
+                else => continue,
+            };
+            const range_start = switch (range.get("start") orelse continue) {
+                .object => |obj| obj,
+                else => continue,
+            };
+            const line_val = switch (range_start.get("line") orelse continue) {
+                .integer => |i| @as(u32, @intCast(i)),
+                else => continue,
+            };
+            const col_val = switch (range_start.get("character") orelse continue) {
+                .integer => |i| @as(u32, @intCast(i)),
+                else => continue,
+            };
+
+            // Read snippet from file
+            const snippet = readSnippetFromFile(self.allocator, path, line_val) catch
+                self.allocator.dupe(u8, "") catch continue;
+
+            result.append(self.allocator, .{
+                .name = self.allocator.dupe(u8, name) catch continue,
+                .kind = kind,
+                .file_path = path,
+                .line = line_val,
+                .column = col_val,
+                .snippet = snippet,
+            }) catch continue;
+        }
+
+        return result.toOwnedSlice(self.allocator) catch return Error.OutOfMemory;
     }
 
     /// Send textDocument/didOpen notification. (T009)

@@ -9,6 +9,7 @@ const watcher = @import("watcher.zig");
 const icons = @import("icons.zig");
 const lsp = @import("lsp.zig");
 const reference = @import("reference.zig");
+const graph = @import("graph.zig");
 
 pub const AppMode = enum {
     tree_view,
@@ -20,8 +21,10 @@ pub const AppMode = enum {
     confirm_delete,
     confirm_overwrite, // For drop filename conflict (US3)
     help,
-    // Phase 4.0: Symbol Reference (T015)
+    // Phase 4.0: Symbol Reference (T015, T029, T034)
     reference_list, // US1: Reference list display
+    reference_graph, // US2: Call hierarchy graph display
+    reference_filter, // US3: Filter input mode
 };
 
 pub const Event = union(enum) {
@@ -138,10 +141,14 @@ pub const App = struct {
     // CLI options (Phase 3.5 - US4: T030)
     show_icons: bool, // Default true, false with --no-icons
 
-    // Phase 4.0: Symbol Reference State (T016)
+    // Phase 4.0: Symbol Reference State (T016, T029)
     lsp_client: ?lsp.LspClient,
     reference_list: ?reference.ReferenceList,
     reference_error_message: ?[]const u8, // For "No references found" or "Language server not available"
+    // US2: Graph visualization state
+    call_hierarchy_graph: ?graph.CallHierarchyGraph,
+    graph_text_content: ?[]const u8, // Cached text tree for fallback display
+    graph_scroll_offset: usize,
 
     const Self = @This();
 
@@ -210,6 +217,9 @@ pub const App = struct {
             .lsp_client = null,
             .reference_list = null,
             .reference_error_message = null,
+            .call_hierarchy_graph = null,
+            .graph_text_content = null,
+            .graph_scroll_offset = 0,
         };
 
         self.tty = try vaxis.Tty.init(&self.tty_buf);
@@ -394,6 +404,8 @@ pub const App = struct {
             .confirm_overwrite => {}, // TODO: Will be implemented in US3 (Drag & Drop)
             .help => self.handleHelpKey(),
             .reference_list => self.handleReferenceListKey(key_char), // Phase 4.0 (T018)
+            .reference_graph => self.handleReferenceGraphKey(key), // Phase 4.0 (T033)
+            .reference_filter => self.handleReferenceFilterKey(key), // Phase 4.0 (T038)
         }
     }
 
@@ -1315,6 +1327,15 @@ pub const App = struct {
                 // Preview snippet (T020)
                 self.previewReferenceSnippet();
             },
+            'G' => {
+                // Switch to graph view (T033)
+                self.switchToGraphView();
+            },
+            'f' => {
+                // Enter filter mode (T038)
+                self.input_buffer.clearRetainingCapacity();
+                self.mode = .reference_filter;
+            },
             vaxis.Key.enter => {
                 // Open in $EDITOR (T021)
                 self.openReferenceInEditor();
@@ -1325,6 +1346,41 @@ pub const App = struct {
                 self.mode = .preview;
             },
             else => {},
+        }
+    }
+
+    /// Handle key events in reference filter mode. (T038)
+    fn handleReferenceFilterKey(self: *Self, key: vaxis.Key) void {
+        const key_char = if (key.codepoint < 128) @as(u8, @intCast(key.codepoint)) else 0;
+
+        switch (key.codepoint) {
+            vaxis.Key.enter => {
+                // Apply filter and return to reference list
+                if (self.reference_list) |*ref_list| {
+                    if (self.input_buffer.items.len > 0) {
+                        ref_list.applyFilter(self.input_buffer.items) catch {};
+                    } else {
+                        ref_list.clearFilter();
+                    }
+                }
+                self.mode = .reference_list;
+            },
+            vaxis.Key.escape => {
+                // Cancel filter and return to reference list
+                self.mode = .reference_list;
+            },
+            vaxis.Key.backspace => {
+                // Delete character
+                if (self.input_buffer.items.len > 0) {
+                    _ = self.input_buffer.pop();
+                }
+            },
+            else => {
+                // Add character to filter pattern
+                if (key_char >= 32 and key_char < 127) {
+                    self.input_buffer.append(self.allocator, key_char) catch {};
+                }
+            },
         }
     }
 
@@ -1372,6 +1428,125 @@ pub const App = struct {
             self.reference_list = null;
         }
         self.reference_error_message = null;
+        self.clearGraph();
+    }
+
+    /// Clear call hierarchy graph and free memory. (T029)
+    fn clearGraph(self: *Self) void {
+        if (self.call_hierarchy_graph) |*g| {
+            g.deinit();
+            self.call_hierarchy_graph = null;
+        }
+        if (self.graph_text_content) |content| {
+            self.allocator.free(content);
+            self.graph_text_content = null;
+        }
+        self.graph_scroll_offset = 0;
+    }
+
+    /// Switch from reference list to graph view. (T033)
+    fn switchToGraphView(self: *Self) void {
+        // Get current reference for building graph
+        const ref_list = self.reference_list orelse return;
+        const current = ref_list.getCurrent() orelse return;
+
+        // Initialize LSP client if needed
+        if (self.lsp_client == null) {
+            self.lsp_client = lsp.LspClient.init(self.allocator);
+
+            // Start LSP with root path
+            const root_path = if (self.file_tree) |ft| ft.root_path else ".";
+            self.lsp_client.?.start(root_path) catch {
+                self.lsp_client.?.deinit();
+                self.lsp_client = null;
+                self.status_message = "Language server not available";
+                return;
+            };
+        }
+
+        // Get incoming and outgoing calls
+        const incoming = self.lsp_client.?.getIncomingCalls(
+            current.file_path,
+            current.line,
+            current.column,
+        ) catch &[_]lsp.CallHierarchyItem{};
+        defer {
+            for (incoming) |*item| {
+                self.allocator.free(item.name);
+                self.allocator.free(item.file_path);
+                self.allocator.free(item.snippet);
+            }
+            self.allocator.free(incoming);
+        }
+
+        const outgoing = self.lsp_client.?.getOutgoingCalls(
+            current.file_path,
+            current.line,
+            current.column,
+        ) catch &[_]lsp.CallHierarchyItem{};
+        defer {
+            for (outgoing) |*item| {
+                self.allocator.free(item.name);
+                self.allocator.free(item.file_path);
+                self.allocator.free(item.snippet);
+            }
+            self.allocator.free(outgoing);
+        }
+
+        // Build graph
+        self.clearGraph();
+        self.call_hierarchy_graph = graph.CallHierarchyGraph.init(self.allocator);
+
+        const root_item = graph.CallHierarchyItem{
+            .name = self.allocator.dupe(u8, ref_list.symbol_name) catch return,
+            .kind = .function,
+            .file_path = self.allocator.dupe(u8, current.file_path) catch return,
+            .line = current.line,
+            .column = current.column,
+            .snippet = self.allocator.dupe(u8, current.snippet) catch return,
+        };
+
+        self.call_hierarchy_graph.?.buildFromCallHierarchy(root_item, incoming, outgoing) catch {
+            self.clearGraph();
+            self.status_message = "Failed to build call hierarchy graph";
+            return;
+        };
+
+        // Generate text tree for fallback display (T028, T032)
+        var arena = std.heap.ArenaAllocator.init(self.allocator);
+        defer arena.deinit();
+        const text_content = self.call_hierarchy_graph.?.toTextTree(arena.allocator()) catch "";
+        self.graph_text_content = self.allocator.dupe(u8, text_content) catch null;
+
+        self.mode = .reference_graph;
+    }
+
+    /// Handle key events in reference graph mode. (T033)
+    fn handleReferenceGraphKey(self: *Self, key: vaxis.Key) void {
+        const key_char = if (key.codepoint < 128) @as(u8, @intCast(key.codepoint)) else 0;
+
+        switch (key_char) {
+            'j' => {
+                // Scroll down
+                self.graph_scroll_offset += 1;
+            },
+            'k' => {
+                // Scroll up
+                if (self.graph_scroll_offset > 0) {
+                    self.graph_scroll_offset -= 1;
+                }
+            },
+            'l', 'q' => {
+                // Return to reference list
+                self.mode = .reference_list;
+            },
+            else => {
+                // Check for escape
+                if (key.codepoint == vaxis.Key.escape) {
+                    self.mode = .reference_list;
+                }
+            },
+        }
     }
 
     fn closePreview(self: *Self) void {
@@ -2291,6 +2466,26 @@ pub const App = struct {
                     arena,
                 );
             },
+            .reference_graph => {
+                // Phase 4.0: Render call hierarchy graph (T032)
+                try ui.renderReferenceGraph(
+                    win,
+                    self.graph_text_content,
+                    self.graph_scroll_offset,
+                    arena,
+                );
+            },
+            .reference_filter => {
+                // Phase 4.0: Render reference list with filter input (T038)
+                try ui.renderReferenceList(
+                    win,
+                    if (self.reference_list) |*rl| rl else null,
+                    self.reference_error_message,
+                    arena,
+                );
+                // Overlay filter input at bottom
+                try ui.renderFilterInput(win, self.input_buffer.items);
+            },
         }
 
         try self.vx.render(writer);
@@ -2519,7 +2714,19 @@ pub const App = struct {
             },
             .reference_list => {
                 _ = win.printSegment(.{
-                    .text = "j/k:nav  Enter:open  o:preview  q:close",
+                    .text = "j/k:nav  Enter:open  o:preview  G:graph  q:close",
+                    .style = .{ .fg = .{ .index = 8 } },
+                }, .{ .row_offset = row, .col_offset = 0 });
+            },
+            .reference_graph => {
+                _ = win.printSegment(.{
+                    .text = "j/k:scroll  l/q:back to list",
+                    .style = .{ .fg = .{ .index = 8 } },
+                }, .{ .row_offset = row, .col_offset = 0 });
+            },
+            .reference_filter => {
+                _ = win.printSegment(.{
+                    .text = "Enter:apply  Esc:cancel",
                     .style = .{ .fg = .{ .index = 8 } },
                 }, .{ .row_offset = row, .col_offset = 0 });
             },
